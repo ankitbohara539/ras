@@ -110,6 +110,9 @@ export type TicketSummary = {
   address_text: string | null
   ward_id: string
   municipality_id: string
+  ward_number: number | null
+  ward_name: string | null
+  municipality_code: string | null
   parent_id: string | null
   child_count: number
   corroboration_count: number

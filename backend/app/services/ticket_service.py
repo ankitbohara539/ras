@@ -642,6 +642,59 @@ def update_status(
     return ticket
 
 
+def reassign_ward(
+    db: Session,
+    actor: Profile,
+    ticket: Ticket,
+    ward_id: UUID,
+) -> Ticket:
+    """Move a ticket to a different ward.
+
+    Routing is by GPS, and GPS is imperfect -- a report near a ward boundary,
+    or taken indoors, lands next door. Without this the ticket is invisible to
+    the office that should handle it and there is no way to fix it.
+
+    A ward-scoped officer can hand a ticket away but cannot pull one in; that
+    would let any officer reach into a neighbouring ward.
+    """
+    target = db.get(Ward, ward_id)
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unknown ward.",
+        )
+
+    if target.municipality_id != ticket.municipality_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A ticket cannot be moved to a different municipality.",
+        )
+
+    # You must already have authority over the ticket to move it.
+    assert_can_access_ward(actor, ticket.ward_id)
+
+    previous = ticket.ward
+
+    # Set the relationship, not just the foreign key. Assigning ward_id alone
+    # leaves the already-loaded `ward` object in place, so the response echoes
+    # the old ward even though the row has moved.
+    ticket.ward = target
+    ticket.ward_id = target.id
+
+    _record_status(
+        db,
+        ticket,
+        ticket.status,
+        ticket.status,
+        actor.id,
+        f"Reassigned from ward {previous.number if previous else '?'} "
+        f"to ward {target.number}",
+    )
+
+    db.flush()
+    return ticket
+
+
 def assign_ticket(
     db: Session,
     authority: Profile,

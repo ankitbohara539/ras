@@ -15,7 +15,7 @@ import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { formatDate, formatDistance, useGeolocation } from '../lib/geo'
 import { useI18n } from '../lib/i18n'
-import type { TicketDetail as Ticket, TicketStatus } from '../lib/types'
+import type { TicketDetail as Ticket, TicketStatus, Ward } from '../lib/types'
 
 const NEXT_STATUSES: Record<TicketStatus, TicketStatus[]> = {
   reported: ['verified', 'in_progress', 'rejected'],
@@ -62,6 +62,8 @@ export function TicketDetailPage() {
   const [message, setMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
+  const [wards, setWards] = useState<Ward[]>([])
+  const [showReassign, setShowReassign] = useState(false)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -77,6 +79,14 @@ export function TicketDetailPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (!showReassign || !ticket) return
+    api
+      .municipality(ticket.municipality_id)
+      .then((detail) => setWards(detail.wards))
+      .catch(() => setWards([]))
+  }, [showReassign, ticket])
 
   const act = async (action: () => Promise<unknown>, successMessage?: string) => {
     setBusy(true)
@@ -162,6 +172,14 @@ export function TicketDetailPage() {
             <dt className="hint">{t('report.location')}</dt>
             <dd className="font-medium">
               {ticket.address_text ?? `${ticket.latitude.toFixed(5)}, ${ticket.longitude.toFixed(5)}`}
+            </dd>
+          </div>
+          <div>
+            <dt className="hint">{t('auth.ward')}</dt>
+            <dd className="font-medium">
+              {ticket.ward_number !== null
+                ? `${t('auth.ward')} ${ticket.ward_number}${ticket.ward_name ? ` — ${ticket.ward_name}` : ''}`
+                : '—'}
             </dd>
           </div>
           {reporters > 1 && (
@@ -435,6 +453,54 @@ export function TicketDetailPage() {
           >
             {t('manage.split')}
           </Button>
+        </Card>
+      )}
+
+      {/* GPS decides the ward, and GPS is imperfect near boundaries. Without
+          this, a misrouted report is invisible to the office that should
+          handle it and there is no way to put it right. */}
+      {isAuthority && !ticket.parent_id && (
+        <Card>
+          {showReassign ? (
+            <>
+              <h2 className="font-bold" style={{ fontSize: 'var(--step-md)' }}>
+                {t('manage.reassignWard')}
+              </h2>
+              <p className="mt-1 hint">{t('manage.reassignHint')}</p>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <select
+                  className="field"
+                  style={{ maxWidth: 280 }}
+                  defaultValue=""
+                  onChange={(e) => {
+                    if (!e.target.value) return
+                    void act(
+                      () => api.reassignWard(ticket.id, e.target.value),
+                      'Moved to the selected ward.',
+                    )
+                  }}
+                >
+                  <option value="">{t('auth.selectWard')}</option>
+                  {wards
+                    .filter((ward) => ward.id !== ticket.ward_id)
+                    .map((ward) => (
+                      <option key={ward.id} value={ward.id}>
+                        {t('auth.ward')} {ward.number}
+                        {ward.name_en ? ` — ${ward.name_en}` : ''}
+                      </option>
+                    ))}
+                </select>
+                <Button variant="secondary" onClick={() => setShowReassign(false)}>
+                  {t('common.cancel')}
+                </Button>
+              </div>
+            </>
+          ) : (
+            <Button variant="secondary" onClick={() => setShowReassign(true)}>
+              📍 {t('manage.wrongWard')}
+            </Button>
+          )}
         </Card>
       )}
 

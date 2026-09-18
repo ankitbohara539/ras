@@ -33,6 +33,7 @@ from app.schema.ticket import (
     DuplicateCandidateResponse,
     MergeRequest,
     PhotoResponse,
+    ReassignWardRequest,
     StatusHistoryEntry,
     StatusUpdateRequest,
     TicketCreateRequest,
@@ -400,6 +401,19 @@ def assign(
     ticket = ticket_service.assign_ticket(
         db, authority, ticket, data.assigned_to_id, data.priority
     )
+    return _detail(db, ticket, authority, include_candidates=True)
+
+
+@router.patch("/{ticket_id}/ward", response_model=TicketDetail)
+def reassign_ward(
+    ticket_id: UUID,
+    data: ReassignWardRequest,
+    authority: Profile = Depends(require_authority),
+    db: Session = Depends(get_db),
+) -> TicketDetail:
+    """Correct a ticket that GPS routed to the wrong ward."""
+    ticket = ticket_service.get_ticket(db, ticket_id)
+    ticket = ticket_service.reassign_ward(db, authority, ticket, data.ward_id)
     return _detail(db, ticket, authority, include_candidates=True)
 
 

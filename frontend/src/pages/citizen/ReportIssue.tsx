@@ -11,7 +11,12 @@ import {
 import { api } from '../../lib/api'
 import { formatDistance, useGeolocation } from '../../lib/geo'
 import { useI18n } from '../../lib/i18n'
-import type { Category, DuplicateCandidate, TicketDetail } from '../../lib/types'
+import type {
+  Category,
+  DuplicateCandidate,
+  TicketDetail,
+  Ward,
+} from '../../lib/types'
 
 const MAX_PHOTOS = 4
 
@@ -22,6 +27,7 @@ export function ReportIssue() {
   const fileInput = useRef<HTMLInputElement>(null)
 
   const [categories, setCategories] = useState<Category[]>([])
+  const [destinationWard, setDestinationWard] = useState<Ward | null>(null)
   const [categoryId, setCategoryId] = useState('')
   const [description, setDescription] = useState('')
   const [address, setAddress] = useState('')
@@ -50,6 +56,31 @@ export function ReportIssue() {
     setPreviews(urls)
     return () => urls.forEach((url) => URL.revokeObjectURL(url))
   }, [photos])
+
+  // Resolve which ward will receive this, and show it before submitting.
+  // Routing is by GPS, not by the ward you registered under, and finding that
+  // out afterwards -- when your report is invisible to your ward office -- is
+  // far too late.
+  useEffect(() => {
+    if (geo.kind !== 'ready') {
+      setDestinationWard(null)
+      return
+    }
+
+    let cancelled = false
+    api
+      .nearestWard(geo.coords)
+      .then((ward) => {
+        if (!cancelled) setDestinationWard(ward)
+      })
+      .catch(() => {
+        if (!cancelled) setDestinationWard(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [geo])
 
   const addPhotos = (files: FileList | null) => {
     if (!files) return
@@ -115,6 +146,13 @@ export function ReportIssue() {
           <div className="mt-2 flex justify-center">
             <StatusBadge status={result.ticket.status} />
           </div>
+          {result.ticket.ward_number !== null && (
+            <p className="mt-2 hint">
+              {t('report.goesToWard')}: {t('auth.ward')}{' '}
+              {result.ticket.ward_number}
+              {result.ticket.ward_name ? ` — ${result.ticket.ward_name}` : ''}
+            </p>
+          )}
         </div>
 
         {result.duplicates.length > 0 && (
@@ -246,6 +284,21 @@ export function ReportIssue() {
             </Button>
             {geo.kind === 'error' && <ErrorNote message={geo.message} />}
             <p className="hint">{t('report.locationNeeded')}</p>
+          </div>
+        )}
+
+        {destinationWard && (
+          <div
+            className="mt-3 rounded-lg p-3"
+            style={{ background: 'var(--color-brand-soft)' }}
+          >
+            <p className="font-semibold" style={{ fontSize: 'var(--step-sm)' }}>
+              {t('report.goesToWard')}: {t('auth.ward')} {destinationWard.number}
+              {destinationWard.name_en
+                ? ` — ${language === 'ne' ? destinationWard.name_ne : destinationWard.name_en}`
+                : ''}
+            </p>
+            <p className="mt-0.5 hint">{t('report.wardExplainer')}</p>
           </div>
         )}
 

@@ -55,6 +55,13 @@ export function TicketCard({
       <div className="mt-3 flex flex-wrap items-center gap-3 hint">
         <span>{relativeTime(ticket.created_at)}</span>
 
+        {ticket.ward_number !== null && (
+          <span>
+            📍 {t('auth.ward')} {ticket.ward_number}
+            {ticket.ward_name ? ` · ${ticket.ward_name}` : ''}
+          </span>
+        )}
+
         {reporters > 1 && (
           <span
             className="font-semibold"

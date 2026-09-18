@@ -225,6 +225,12 @@ export const api = {
       body: { parent_ticket_id, note },
     }),
 
+  reassignWard: (id: string, ward_id: string) =>
+    request<TicketDetail>(`/tickets/${id}/ward`, {
+      method: 'PATCH',
+      body: { ward_id },
+    }),
+
   splitTicket: (id: string) =>
     request<TicketDetail>(`/tickets/${id}/split`, { method: 'POST' }),
 

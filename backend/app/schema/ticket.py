@@ -48,6 +48,11 @@ class TicketSummary(BaseModel):
     address_text: str | None
     ward_id: UUID
     municipality_id: UUID
+    # Which ward actually owns this. Decided by GPS at submission time, which
+    # is not necessarily the reporter's home ward -- so it is always shown.
+    ward_number: int | None = None
+    ward_name: str | None = None
+    municipality_code: str | None = None
     parent_id: UUID | None
     child_count: int
     corroboration_count: int
@@ -137,6 +142,12 @@ class MergeRequest(BaseModel):
 
     parent_ticket_id: UUID
     note: str | None = Field(default=None, max_length=500)
+
+
+class ReassignWardRequest(BaseModel):
+    """Correct GPS routing that put a ticket in the wrong ward."""
+
+    ward_id: UUID
 
 
 class CorroborationRequest(BaseModel):

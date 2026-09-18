@@ -17,6 +17,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, Timestamped, UUIDPrimaryKey
 from app.models.enums import CandidateStatus, Language, TicketPriority, TicketStatus
+from app.models.geography import Municipality, Ward
 
 EMBEDDING_DIM = 256
 
@@ -114,6 +115,11 @@ class Ticket(UUIDPrimaryKey, Timestamped, Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolution_note: Mapped[str | None] = mapped_column(Text)
 
+    # Eager-loaded: every ticket listing shows which ward owns it, and the
+    # alternative is an N+1 across the dashboard.
+    ward: Mapped["Ward"] = relationship(lazy="selectin")
+    municipality: Mapped["Municipality"] = relationship(lazy="selectin")
+
     parent: Mapped["Ticket | None"] = relationship(
         remote_side="Ticket.id",
         back_populates="children",
@@ -123,6 +129,18 @@ class Ticket(UUIDPrimaryKey, Timestamped, Base):
         back_populates="ticket",
         cascade="all, delete-orphan",
     )
+
+    @property
+    def ward_number(self) -> int | None:
+        return self.ward.number if self.ward else None
+
+    @property
+    def ward_name(self) -> str | None:
+        return self.ward.name_en if self.ward else None
+
+    @property
+    def municipality_code(self) -> str | None:
+        return self.municipality.code if self.municipality else None
 
     @property
     def is_child(self) -> bool:

@@ -71,6 +71,11 @@ const STRINGS = {
   'report.photos': ['Photos', 'तस्बिरहरू'],
   'report.addPhoto': ['Add photo', 'तस्बिर थप्नुहोस्'],
   'report.photoHint': ['Up to 4 photos, 8MB each.', 'बढीमा ४ तस्बिर, प्रत्येक ८MB।'],
+  'report.goesToWard': ['Goes to', 'यसमा जान्छ'],
+  'report.wardExplainer': [
+    'The ward is set by where the problem is, not by where you live.',
+    'वडा तपाईं बस्ने ठाउँले होइन, समस्या भएको ठाउँले तय हुन्छ।',
+  ],
   'report.submit': ['Submit report', 'उजुरी पेश गर्नुहोस्'],
   'report.submitting': ['Submitting...', 'पेश गर्दै...'],
   'report.submitted': ['Report submitted', 'उजुरी पेश भयो'],
@@ -194,6 +199,12 @@ const STRINGS = {
   'manage.split': ['Split out from parent', 'अभिभावकबाट अलग गर्नुहोस्'],
   'manage.duplicateOf': ['Duplicate of', 'यसको नक्कल'],
   'manage.setPriority': ['Priority', 'प्राथमिकता'],
+  'manage.wrongWard': ['Wrong ward?', 'गलत वडा?'],
+  'manage.reassignWard': ['Move to another ward', 'अर्को वडामा सार्नुहोस्'],
+  'manage.reassignHint': [
+    'GPS routed this here. If it belongs to a neighbouring ward, move it — you will lose access once you do.',
+    'GPS ले यहाँ पठायो। छिमेकी वडाको हो भने सार्नुहोस् — सारेपछि तपाईंको पहुँच रहँदैन।',
+  ],
 
   'sosQueue.title': ['Emergency requests', 'आपतकालीन अनुरोध'],
   'sosQueue.acknowledge': ['Acknowledge', 'स्वीकार'],
