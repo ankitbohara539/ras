@@ -10,36 +10,56 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.cache import REFERENCE_TTL_S, STATS_TTL_S, cache
 from app.core.config import get_settings
 from app.core.geo import bounding_box, haversine_m
+from app.core.geocode import reverse_geocode, search_places
+from app.core.security import get_current_profile
 from app.db.session import get_db
 from app.models.category import Category
 from app.models.emergency import CivicService
 from app.models.enums import ServiceType
-from app.models.geography import Municipality, Ward
+from app.models.geography import Municipality
+from app.models.profile import Profile
 from app.schema.public import PublicStatsResponse
 from app.schema.reference import (
     CategoryResponse,
     CivicServiceListItem,
     MunicipalityDetailResponse,
     MunicipalityResponse,
+    PlaceSearchResult,
+    ReverseGeocodeResponse,
     WardResponse,
 )
 from app.services.stats_service import compute_public_stats
+from app.services.ticket_service import locate_ward
 
 router = APIRouter(tags=["Reference"])
 
 
 @router.get("/categories", response_model=list[CategoryResponse])
 def list_categories(db: Session = Depends(get_db)) -> list[CategoryResponse]:
-    rows = db.scalars(select(Category).order_by(Category.sort_order)).all()
-    return [CategoryResponse.model_validate(c) for c in rows]
+    # Reference data: cached in-process, see app.core.cache.
+    return cache.get_or_load(
+        "ref:categories",
+        lambda: [
+            CategoryResponse.model_validate(c)
+            for c in db.scalars(select(Category).order_by(Category.sort_order)).all()
+        ],
+        REFERENCE_TTL_S,
+    )
 
 
 @router.get("/municipalities", response_model=list[MunicipalityResponse])
 def list_municipalities(db: Session = Depends(get_db)) -> list[MunicipalityResponse]:
-    rows = db.scalars(select(Municipality).order_by(Municipality.name_en)).all()
-    return [MunicipalityResponse.model_validate(m) for m in rows]
+    return cache.get_or_load(
+        "ref:municipalities",
+        lambda: [
+            MunicipalityResponse.model_validate(m)
+            for m in db.scalars(select(Municipality).order_by(Municipality.name_en)).all()
+        ],
+        REFERENCE_TTL_S,
+    )
 
 
 @router.get(
@@ -49,6 +69,14 @@ def list_municipalities(db: Session = Depends(get_db)) -> list[MunicipalityRespo
 def get_municipality(
     municipality_id: UUID, db: Session = Depends(get_db)
 ) -> MunicipalityDetailResponse:
+    return cache.get_or_load(
+        f"ref:municipality:{municipality_id}",
+        lambda: _load_municipality(db, municipality_id),
+        REFERENCE_TTL_S,
+    )
+
+
+def _load_municipality(db: Session, municipality_id: UUID) -> MunicipalityDetailResponse:
     municipality = db.scalar(
         select(Municipality)
         .where(Municipality.id == municipality_id)
@@ -73,23 +101,55 @@ def nearest_ward(
     longitude: float = Query(ge=-180, le=180),
     db: Session = Depends(get_db),
 ) -> WardResponse:
-    """Resolve coordinates to a ward.
+    """Resolve coordinates to a ward, by the same rule a new report uses.
 
-    Used when a citizen files a report: the app sends GPS, the server decides
-    which ward owns it, so the citizen never picks a ward from a dropdown.
+    Kept for older clients; the report form now gets this from /geo/reverse.
     """
-    wards = db.scalars(select(Ward)).all()
-    if not wards:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="No wards are configured. Run the seed script.",
-        )
+    return WardResponse.model_validate(locate_ward(db, latitude, longitude))
 
-    closest = min(
-        wards,
-        key=lambda w: haversine_m(latitude, longitude, w.centroid_lat, w.centroid_lon),
+
+@router.get("/geo/reverse", response_model=ReverseGeocodeResponse)
+def reverse(
+    latitude: float = Query(ge=-90, le=90),
+    longitude: float = Query(ge=-180, le=180),
+    lang: str = Query(default="en", pattern="^(en|ne)$"),
+    _profile: Profile = Depends(get_current_profile),
+    db: Session = Depends(get_db),
+) -> ReverseGeocodeResponse:
+    """Name the place at a point and say which ward a report there goes to.
+
+    Signed-in only, unlike the rest of this module: it spends a shared,
+    rate-limited upstream (Nominatim), and an open endpoint would let anyone
+    burn that allowance through us.
+    """
+    # resolve_ward asks in English (it parses the ward tag); a Nepali caller
+    # also wants the Nepali name. Both are cached, so a report submitted from
+    # here re-uses them instead of asking again.
+    # From the cached ward directory: no database read for a pin move.
+    ward = locate_ward(db, latitude, longitude)
+    place = reverse_geocode(latitude, longitude, lang)
+    return ReverseGeocodeResponse(
+        latitude=latitude,
+        longitude=longitude,
+        place_name=place.place_name if place else None,
+        display_name=place.display_name if place else None,
+        ward=WardResponse.model_validate(ward),
     )
-    return WardResponse.model_validate(closest)
+
+
+@router.get("/geo/search", response_model=list[PlaceSearchResult])
+def search(
+    q: str = Query(min_length=2, max_length=120),
+    lang: str = Query(default="en", pattern="^(en|ne)$"),
+    _profile: Profile = Depends(get_current_profile),
+) -> list[PlaceSearchResult]:
+    """Find a place by name, for picking a destination on the hazard map."""
+    return [
+        PlaceSearchResult(
+            name=r.name, display_name=r.display_name, latitude=r.latitude, longitude=r.longitude
+        )
+        for r in search_places(q, lang)
+    ]
 
 
 @router.get("/services", response_model=list[CivicServiceListItem])
@@ -163,5 +223,9 @@ def public_stats(
     a title, description, photo or exact coordinate. That boundary is what
     makes this endpoint safe to leave unauthenticated.
     """
-    code = municipality_code or get_settings().public_stats_municipality_code
-    return compute_public_stats(db, code)
+    code = (municipality_code or get_settings().public_stats_municipality_code).upper()
+    # City-wide aggregates, cached for 30 s: the page shows when they were
+    # generated, and nobody's own report depends on them.
+    return cache.get_or_load(
+        f"stats:{code}", lambda: compute_public_stats(db, code), STATS_TTL_S
+    )

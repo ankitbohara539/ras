@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react'
 import { api, getToken, setToken } from './api'
+import { clearCache } from './cache'
 import type { Profile } from './types'
 
 type AuthValue = {
@@ -56,12 +57,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(async (email: string, password: string) => {
     const result = await api.login(email, password)
+    // Nothing cached for a previous account may be shown to this one.
+    clearCache()
     setToken(result.access_token)
     setProfile(result.profile)
     return result.profile
   }, [])
 
   const signOut = useCallback(() => {
+    clearCache()
     setToken(null)
     setProfile(null)
   }, [])

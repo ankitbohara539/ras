@@ -1,12 +1,15 @@
 """Ticket lifecycle: creation, duplicate detection, merging and status flow.
 
-The rule this module exists to enforce: the matcher writes suggestions, an
-authority writes the tree. `parent_id` is set in exactly one place --
-`merge_tickets` -- and that function requires an authority profile.
+The matcher writes suggestions and, when it is sure enough (score at or above
+`dedupe_auto_merge_score`), merges on its own. Everything else waits for an
+authority. `parent_id` is set in exactly one place -- `_fold_under` -- reached
+either through `merge_tickets` (an authority) or `auto_merge_if_confident`.
+Any merge, automatic or not, can be undone with `split_ticket`.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -14,11 +17,14 @@ from fastapi import HTTPException, status
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.cache import REFERENCE_TTL_S, cache
 from app.core.config import get_settings
 from app.core.geo import bounding_box, haversine_m
+from app.core.geocode import reverse_geocode
 from app.core.security import assert_can_access_ward
 from app.ml.matcher import MatchCandidate, MatchInput, MatchWeights, rank_candidates
 from app.ml.registry import ModelsNotTrained, get_classifier, get_encoder
+from app.ml.urgency import is_urgent
 from app.models.category import Category
 from app.models.enums import (
     CandidateStatus,
@@ -73,23 +79,132 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def resolve_ward(db: Session, latitude: float, longitude: float) -> Ward:
-    """Map coordinates to the nearest ward centroid.
+def _name_key(name: str | None) -> str:
+    """ "Kathmandu Metropolitan City" / "Kathmandu" -> "kathmandu"."""
+    if not name:
+        return ""
+    first = name.strip().split()[0] if name.strip() else ""
+    return "".join(ch for ch in first.lower() if ch.isalpha())
 
-    The citizen never picks a ward: GPS decides, which is both less friction
-    and harder to game than a dropdown.
+
+@dataclass(frozen=True)
+class WardInfo:
+    """A ward as plain data, safe to share between requests (unlike an ORM row)."""
+
+    id: UUID
+    number: int
+    name_en: str | None
+    name_ne: str | None
+    municipality_id: UUID
+    municipality_code: str
+    municipality_name_en: str
+    centroid_lat: float
+    centroid_lon: float
+
+
+def ward_index(db: Session) -> list[WardInfo]:
+    """Every ward, cached: it changes only when the seed script is re-run.
+
+    Used on every location lookup -- the report form asks each time its pin
+    moves -- where reading all 94 wards cost two database round trips.
     """
-    wards = db.scalars(select(Ward)).all()
+
+    def load() -> list[WardInfo]:
+        rows = db.scalars(select(Ward).options(selectinload(Ward.municipality))).all()
+        return [
+            WardInfo(
+                id=w.id,
+                number=w.number,
+                name_en=w.name_en,
+                name_ne=w.name_ne,
+                municipality_id=w.municipality_id,
+                municipality_code=w.municipality.code if w.municipality else "",
+                municipality_name_en=w.municipality.name_en if w.municipality else "",
+                centroid_lat=w.centroid_lat,
+                centroid_lon=w.centroid_lon,
+            )
+            for w in rows
+        ]
+
+    wards = cache.get_or_load("ref:wards", load, REFERENCE_TTL_S)
+    if not wards:
+        # Do not remember "no wards": the seed may be running right now.
+        cache.invalidate("ref:wards")
+    return wards
+
+
+def category_keys(db: Session) -> dict[UUID, str]:
+    """Category id -> key, cached like the ward directory."""
+    return cache.get_or_load(
+        "ref:category_keys",
+        lambda: {c.id: c.key for c in db.scalars(select(Category)).all()},
+        REFERENCE_TTL_S,
+    )
+
+
+def category_radii(db: Session) -> dict[UUID, int]:
+    """Category id -> match radius in metres, cached like the ward directory."""
+    return cache.get_or_load(
+        "ref:category_radii",
+        lambda: {c.id: c.match_radius_m for c in db.scalars(select(Category)).all()},
+        REFERENCE_TTL_S,
+    )
+
+
+def locate_ward(db: Session, latitude: float, longitude: float) -> WardInfo:
+    """Which ward contains these coordinates.
+
+    The seeded centroids are the real ward centres (OpenStreetMap ward
+    boundaries), but "nearest centre" is still only an approximation near a
+    boundary, and OpenStreetMap knows the actual ward (city_district
+    "Kathmandu-07"), so it is asked first:
+
+      1. OSM's ward and municipality, when both match a seeded ward.
+      2. Otherwise the nearest centre *inside* OSM's municipality.
+      3. Otherwise (geocoder down, place outside the seeded area) the nearest
+         centre overall.
+    """
+    wards = ward_index(db)
     if not wards:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="No wards are configured. Run: python -m scripts.seed",
         )
 
-    return min(
-        wards,
-        key=lambda w: haversine_m(latitude, longitude, w.centroid_lat, w.centroid_lon),
-    )
+    def nearest(pool: list[WardInfo]) -> WardInfo:
+        return min(
+            pool,
+            key=lambda w: haversine_m(latitude, longitude, w.centroid_lat, w.centroid_lon),
+        )
+
+    # English, whatever the UI language: the ward tag is parsed from it.
+    place = reverse_geocode(latitude, longitude, "en")
+    if place is not None:
+        area = _name_key(place.ward_area) or _name_key(place.city)
+        in_municipality = [w for w in wards if _name_key(w.municipality_name_en) == area]
+        if in_municipality:
+            if place.ward_number is not None:
+                for ward in in_municipality:
+                    if ward.number == place.ward_number:
+                        return ward
+            return nearest(in_municipality)
+
+    return nearest(wards)
+
+
+def resolve_ward(db: Session, latitude: float, longitude: float) -> Ward:
+    """locate_ward, as the ORM row callers attach to a ticket or complaint.
+
+    The citizen never picks a ward: the location decides, which is both less
+    friction and harder to game than a dropdown.
+    """
+    info = locate_ward(db, latitude, longitude)
+    ward = db.get(Ward, info.id)
+    if ward is None:  # deleted by a reseed since the directory was cached
+        cache.invalidate("ref:wards")
+        info = locate_ward(db, latitude, longitude)
+        ward = db.get(Ward, info.id)
+    return ward
 
 
 def generate_public_code(db: Session, ward: Ward) -> str:
@@ -119,6 +234,7 @@ PRIORITY_RANK: dict[TicketPriority, int] = {
     TicketPriority.HIGH: 2,
     TicketPriority.CRITICAL: 3,
 }
+_PRIORITY_BY_RANK = {rank: priority for priority, rank in PRIORITY_RANK.items()}
 
 
 def compute_priority(ticket: Ticket, category: Category) -> TicketPriority:
@@ -201,8 +317,34 @@ def escalate_for_age(
     return base
 
 
+def escalate_for_comments(
+    base: TicketPriority, urgent_commenters: int
+) -> TicketPriority:
+    """Raise priority when enough different people say it is urgent.
+
+    One level for every `urgent_commenters_per_level` distinct citizens whose
+    comment presses for a fix (3 people -> +1, 6 -> +2). A pothole that scores
+    low but has a thread full of "someone will get hurt, fix it soon" is not
+    low any more, and the thread is the evidence.
+
+    Stops at high, for the same reason age does: critical means dangerous, and
+    an officer decides that. Never lowers anything.
+    """
+    per_level = get_settings().urgent_commenters_per_level
+    if per_level <= 0 or urgent_commenters < per_level:
+        return base
+
+    rank = PRIORITY_RANK[base]
+    ceiling = PRIORITY_RANK[TicketPriority.HIGH]
+    if rank >= ceiling:
+        return base
+
+    levels = urgent_commenters // per_level
+    return _PRIORITY_BY_RANK[min(rank + levels, ceiling)]
+
+
 def apply_priority(ticket: Ticket, category: Category) -> TicketPriority:
-    """Set `ticket.priority` from the score and the age ladder.
+    """Set `ticket.priority` from the score, comment pressure and age.
 
     The single place automatic priority is written. A locked ticket is left
     exactly as the human left it.
@@ -211,7 +353,10 @@ def apply_priority(ticket: Ticket, category: Category) -> TicketPriority:
         return ticket.priority
 
     scored = compute_priority(ticket, category)
-    ticket.priority = escalate_for_age(scored, ticket.created_at, ticket.status)
+    pressed = escalate_for_comments(
+        scored, getattr(ticket, "urgent_commenter_count", 0) or 0
+    )
+    ticket.priority = escalate_for_age(pressed, ticket.created_at, ticket.status)
     return ticket.priority
 
 
@@ -271,7 +416,9 @@ def find_duplicate_candidates(
 
     window_start = _now() - timedelta(days=category.dedupe_window_days)
     min_lat, max_lat, min_lon, max_lon = bounding_box(
-        ticket.latitude, ticket.longitude, category.match_radius_m
+        ticket.latitude,
+        ticket.longitude,
+        category.match_radius_m + settings.dedupe_gps_slack_m,
     )
 
     query: Select = (
@@ -295,23 +442,24 @@ def find_duplicate_candidates(
         return []
 
     new_phashes = [p.phash for p in ticket.photos]
+    # The ticket's own category, not the classifier's guess: when a citizen
+    # picks "Illegal Construction" and the model guessed something else, the
+    # citizen is right. Matching on the guess merged two different problems
+    # whose short descriptions happened to fool the classifier the same way.
     match_input = MatchInput(
-        category_key=ticket.predicted_category_key or category.key,
+        category_key=category.key,
         embedding=list(ticket.embedding) if ticket.embedding is not None else None,
         latitude=ticket.latitude,
         longitude=ticket.longitude,
         phashes=new_phashes,
     )
 
-    category_keys = {
-        c.id: c.key for c in db.scalars(select(Category)).all()
-    }
+    keys_by_id = category_keys(db)
 
     candidates = [
         MatchCandidate(
             ticket_id=other.id,
-            category_key=other.predicted_category_key
-            or category_keys.get(other.category_id, "other"),
+            category_key=keys_by_id.get(other.category_id, "other"),
             embedding=list(other.embedding) if other.embedding is not None else None,
             latitude=other.latitude,
             longitude=other.longitude,
@@ -334,6 +482,7 @@ def find_duplicate_candidates(
         weights=weights,
         min_score=settings.dedupe_min_score,
         limit=settings.dedupe_max_candidates,
+        gps_slack_m=settings.dedupe_gps_slack_m,
     )
 
     rows = []
@@ -499,11 +648,10 @@ def can_view_ticket(profile: Profile, ticket: Ticket) -> bool:
 
 
 def get_ticket(db: Session, ticket_id: UUID) -> Ticket:
-    ticket = db.scalar(
-        select(Ticket)
-        .where(Ticket.id == ticket_id)
-        .options(selectinload(Ticket.photos), selectinload(Ticket.children))
-    )
+    # Deliberately lean: one query (ward and municipality are joined in).
+    # Photos and children load on first access, and most callers -- comments,
+    # status changes -- never touch them.
+    ticket = db.get(Ticket, ticket_id)
     if ticket is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="No such ticket."
@@ -521,7 +669,7 @@ def merge_tickets(
     parent_id: UUID,
     note: str | None = None,
 ) -> Ticket:
-    """Fold `child` under `parent`. The only place parent_id is ever set."""
+    """An authority folds `child` under `parent`."""
     if child.id == parent_id:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -550,6 +698,78 @@ def merge_tickets(
             ),
         )
 
+    _fold_under(
+        db, child, parent, authority.id, note or f"Merged into {parent.public_code}"
+    )
+    return parent
+
+
+def auto_merge_if_confident(
+    db: Session, ticket: Ticket, candidates: list[DuplicateCandidate]
+) -> tuple[Ticket, DuplicateCandidate] | None:
+    """Merge a fresh report under its best match when the matcher is sure.
+
+    At or above `dedupe_auto_merge_score` the officer would click "merge"
+    every time, so making them do it only delays the reporter count and the
+    priority bump that merging brings. Below it, the suggestion waits for a
+    human. Either way `split_ticket` undoes it.
+
+    Returns (parent, the winning suggestion), or None if nothing was merged.
+    """
+    if ticket.parent_id is not None or not candidates:
+        return None
+
+    threshold = get_settings().dedupe_auto_merge_score
+    for best in sorted(candidates, key=lambda c: c.score, reverse=True):
+        if best.score < threshold:
+            return None
+
+        parent = db.get(Ticket, best.candidate_ticket_id)
+        # The candidate query already guarantees these; re-check because the
+        # parent may have closed or been merged since the suggestion was made.
+        if (
+            parent is None
+            or parent.parent_id is not None
+            or parent.status not in OPEN_STATUSES
+        ):
+            continue
+        # Never fold someone's report into their own. Several reports filed
+        # together from one spot are several problems -- that is why they
+        # were filed separately. If it really is a repeat, the suggestion is
+        # still there for an officer to merge.
+        if parent.reporter_id == ticket.reporter_id:
+            continue
+        # Only merge on its own inside the category's true radius. Pairs in
+        # the GPS-slack band beyond it are suggestions for a human to judge.
+        radius = category_radii(db).get(parent.category_id)
+        if radius is not None and best.distance_m > radius:
+            continue
+        break
+    else:
+        return None
+
+    _fold_under(
+        db,
+        ticket,
+        parent,
+        None,
+        f"Automatically merged into {parent.public_code} ({best.score:.0%} match)",
+    )
+    return parent, best
+
+
+def _fold_under(
+    db: Session,
+    child: Ticket,
+    parent: Ticket,
+    actor_id: UUID | None,
+    note: str,
+) -> None:
+    """Make `child` a duplicate of `parent`. The only place parent_id is set.
+
+    Callers do the permission and shape checks; `actor_id` is None when the
+    matcher merged on its own.
+    """
     previous_status = child.status
     child.parent_id = parent.id
     child.status = TicketStatus.MERGED
@@ -566,7 +786,7 @@ def merge_tickets(
     ).update(
         {
             "status": CandidateStatus.MERGED,
-            "reviewed_by_id": authority.id,
+            "reviewed_by_id": actor_id,
             "reviewed_at": _now(),
         }
     )
@@ -577,19 +797,12 @@ def merge_tickets(
     ).update(
         {
             "status": CandidateStatus.REJECTED,
-            "reviewed_by_id": authority.id,
+            "reviewed_by_id": actor_id,
             "reviewed_at": _now(),
         }
     )
 
-    _record_status(
-        db,
-        child,
-        previous_status,
-        TicketStatus.MERGED,
-        authority.id,
-        note or f"Merged into {parent.public_code}",
-    )
+    _record_status(db, child, previous_status, TicketStatus.MERGED, actor_id, note)
 
     _notify(
         db,
@@ -603,7 +816,6 @@ def merge_tickets(
     )
 
     db.flush()
-    return parent
 
 
 def split_ticket(db: Session, authority: Profile, child: Ticket) -> Ticket:
@@ -1071,9 +1283,17 @@ def add_comment(db: Session, author: Profile, ticket: Ticket, body: str) -> Tick
             ),
         )
 
-    comment = TicketComment(ticket_id=ticket.id, author_id=author.id, body=body)
+    comment = TicketComment(
+        ticket_id=ticket.id,
+        author_id=author.id,
+        body=body,
+        is_urgent=is_urgent(body),
+    )
     db.add(comment)
     db.flush()
+
+    if comment.is_urgent:
+        refresh_comment_urgency(db, ticket)
 
     # Notify the people actually responsible for this ticket, not everyone in
     # the municipality who happens to be able to see it -- the thread is
@@ -1102,6 +1322,21 @@ def list_comments(
             detail="You do not have permission to view this report.",
         )
 
+    rows = list(
+        db.scalars(
+            select(TicketComment)
+            .where(TicketComment.ticket_id == ticket.id)
+            .order_by(TicketComment.created_at)
+            .limit(limit)
+            .offset(offset)
+        ).all()
+    )
+
+    # A page that came back short is the whole remainder, so the total is
+    # known without a second round trip to count.
+    if len(rows) < limit:
+        return rows, offset + len(rows)
+
     total = (
         db.scalar(
             select(func.count())
@@ -1110,14 +1345,7 @@ def list_comments(
         )
         or 0
     )
-    rows = db.scalars(
-        select(TicketComment)
-        .where(TicketComment.ticket_id == ticket.id)
-        .order_by(TicketComment.created_at)
-        .limit(limit)
-        .offset(offset)
-    ).all()
-    return list(rows), total
+    return rows, total
 
 
 def delete_comment(
@@ -1137,5 +1365,70 @@ def delete_comment(
     if not is_own:
         assert_can_access_ward(actor, ticket.ward_id)
 
+    was_urgent = comment.is_urgent
     db.delete(comment)
+    db.flush()
+
+    # The pressure has to come off again, or deleting three "urgent!" posts
+    # would leave the ticket bumped with no visible reason.
+    if was_urgent:
+        refresh_comment_urgency(db, ticket)
+
+
+def refresh_comment_urgency(db: Session, ticket: Ticket) -> None:
+    """Recount distinct citizens pressing for a fix and re-score the ticket.
+
+    Counted from the rows every time rather than incremented, so a deleted
+    comment, or one person posting "urgent" five times, both come out right.
+    Only citizens count: an officer writing "we will fix this immediately" is
+    an answer to the pressure, not more of it.
+    """
+    count = (
+        db.scalar(
+            select(func.count(func.distinct(TicketComment.author_id)))
+            .join(Profile, Profile.id == TicketComment.author_id)
+            .where(
+                TicketComment.ticket_id == ticket.id,
+                TicketComment.is_urgent.is_(True),
+                Profile.role == UserRole.CITIZEN,
+            )
+        )
+        or 0
+    )
+    ticket.urgent_commenter_count = count
+
+    category = db.get(Category, ticket.category_id)
+    if category is None:
+        return
+
+    previous = ticket.priority
+    apply_priority(ticket, category)
+    if ticket.priority is previous:
+        db.flush()
+        return
+
+    raised = PRIORITY_RANK[ticket.priority] > PRIORITY_RANK[previous]
+    people = "person" if count == 1 else "people"
+    _record_status(
+        db,
+        ticket,
+        ticket.status,
+        ticket.status,
+        None,
+        (
+            f"Priority {'raised' if raised else 'lowered'} {previous.value} -> "
+            f"{ticket.priority.value}: {count} {people} asked in the comments for it to be fixed"
+        ),
+    )
+
+    if raised and ticket.assigned_to_id is not None:
+        _notify(
+            db,
+            ticket.assigned_to_id,
+            NotificationType.TICKET_STATUS_CHANGED,
+            f"{ticket.public_code} is now {ticket.priority.value} priority",
+            f"{ticket.public_code} अब {ticket.priority.value} प्राथमिकतामा",
+            f"{count} people have asked in the comments for this to be fixed.",
+            ticket_id=ticket.id,
+        )
     db.flush()

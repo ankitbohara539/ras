@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button, ErrorNote, Field, SuccessNote } from '../components/ui'
+import { ResendVerification } from '../components/ResendVerification'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useI18n } from '../lib/i18n'
@@ -25,6 +26,7 @@ export function Register() {
 
   const [error, setError] = useState<string | null>(null)
   const [pendingMessage, setPendingMessage] = useState<string | null>(null)
+  const [verifyMessage, setVerifyMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -60,6 +62,13 @@ export function Register() {
         preferred_language: language,
       })
 
+      if (result.requires_verification) {
+        // Supabase will not sign them in until the link is clicked, so there
+        // is nothing to do here but say where to look.
+        setVerifyMessage(result.message)
+        return
+      }
+
       if (result.requires_approval) {
         // An authority account cannot sign in yet, so say so rather than
         // bouncing them to a login that will refuse them.
@@ -74,6 +83,27 @@ export function Register() {
     } finally {
       setBusy(false)
     }
+  }
+
+  if (verifyMessage) {
+    return (
+      <AuthShell>
+        <div className="card space-y-4 p-6">
+          <p aria-hidden="true" className="text-center" style={{ fontSize: '2.5rem' }}>
+            📧
+          </p>
+          <h2 className="text-center font-bold" style={{ fontSize: 'var(--step-lg)' }}>
+            {t('auth.checkInbox')}
+          </h2>
+          <SuccessNote>{verifyMessage}</SuccessNote>
+          {role === 'authority' && <p className="hint">{t('auth.thenApproval')}</p>}
+          <ResendVerification email={email} />
+          <Link to="/login" className="btn btn-primary w-full">
+            {t('auth.login')}
+          </Link>
+        </div>
+      </AuthShell>
+    )
   }
 
   if (pendingMessage) {

@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { TicketCard } from '../../components/TicketCard'
 import {
@@ -10,6 +9,7 @@ import {
 } from '../../components/ui'
 import { api } from '../../lib/api'
 import { useAuth } from '../../lib/auth'
+import { useQuery } from '../../lib/cache'
 import { useI18n } from '../../lib/i18n'
 import type { Alert, TicketSummary } from '../../lib/types'
 
@@ -17,36 +17,19 @@ export function CitizenHome() {
   const { t, pick } = useI18n()
   const { profile } = useAuth()
 
-  const [tickets, setTickets] = useState<TicketSummary[]>([])
-  const [alerts, setAlerts] = useState<Alert[]>([])
-  const [loading, setLoading] = useState(true)
+  // Home is the page people return to most, so it paints from cache and
+  // refreshes behind the scenes. Each half fails on its own: no alerts is
+  // not a reason to hide your reports.
+  const mine = useQuery(profile ? `tickets:mine:5:${profile.id}` : null, () =>
+    api.tickets({ mine: true, limit: 5 }),
+  )
+  const active = useQuery(profile ? `alerts:${profile.id}` : null, () => api.alerts(), {
+    refetchIntervalMs: 60_000,
+  })
+  const tickets: TicketSummary[] = mine.data?.items ?? []
+  const alerts: Alert[] = active.data ?? []
 
-  useEffect(() => {
-    let cancelled = false
-
-    async function load() {
-      try {
-        const [mine, active] = await Promise.all([
-          api.tickets({ mine: true, limit: 5 }),
-          api.alerts(),
-        ])
-        if (cancelled) return
-        setTickets(mine.items)
-        setAlerts(active)
-      } catch {
-        // Leave the page empty rather than blocking on a partial failure.
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-
-    void load()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  if (loading) return <Spinner />
+  if (mine.loading && active.loading) return <Spinner />
 
   return (
     <div className="space-y-6">

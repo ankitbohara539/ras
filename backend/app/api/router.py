@@ -2,7 +2,9 @@ from fastapi import APIRouter
 
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
+from app.api.civic import router as civic_router
 from app.api.emergency import router as emergency_router
+from app.api.hazards import router as hazards_router
 from app.api.reference import router as reference_router
 from app.api.routes import health
 from app.api.tickets import router as tickets_router
@@ -16,4 +18,6 @@ api_router.include_router(users_router)
 api_router.include_router(reference_router)
 api_router.include_router(tickets_router)
 api_router.include_router(emergency_router)
+api_router.include_router(civic_router)
+api_router.include_router(hazards_router)
 api_router.include_router(admin_router)

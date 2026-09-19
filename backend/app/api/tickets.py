@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 from uuid import UUID
 
 from fastapi import (
@@ -13,10 +14,12 @@ from fastapi import (
 )
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.core.geo import bounding_box, haversine_m
+from app.core.geocode import reverse_geocode
 from app.core.security import get_current_profile, require_authority
-from app.db.session import get_db
+from app.db.session import get_db, read_session
 from app.ml.imaging import compute_phash, image_dimensions
 from app.models.enums import CandidateStatus, TicketStatus, UserRole
 from app.models.profile import Profile
@@ -25,6 +28,7 @@ from app.models.ticket import (
     Ticket,
     TicketComment,
     TicketCorroboration,
+    TicketPhoto,
     TicketStatusHistory,
 )
 from app.schema.ticket import (
@@ -51,7 +55,7 @@ from app.services import ticket_service
 from app.services.storage_service import (
     MAX_PHOTOS_PER_TICKET,
     read_and_validate,
-    signed_url,
+    signed_urls,
     upload_photo,
 )
 
@@ -87,60 +91,148 @@ def _candidate_response(
     return response
 
 
+def _prefetch_candidate_tickets(db: Session, candidates) -> list[Ticket]:
+    """Load every ticket a list of suggestions mentions, in one query.
+
+    _candidate_response looks each one up with db.get; with them already in
+    the session's identity map those lookups cost nothing, instead of two
+    round trips per suggestion.
+
+    The caller must hold on to the returned list until it is done: the
+    identity map only keeps weak references, so discarded rows are collected
+    at once and db.get goes back to the database.
+    """
+    ids = {c.ticket_id for c in candidates} | {c.candidate_ticket_id for c in candidates}
+    if not ids:
+        return []
+    return list(db.scalars(select(Ticket).where(Ticket.id.in_(ids))).all())
+
+
+# Filled by the parts below, never read off the ORM object -- reading
+# `ticket.photos` or `ticket.children` would fire a lazy query each.
+_DETAIL_PARTS = {
+    "photos",
+    "children",
+    "history",
+    "duplicate_candidates",
+    "my_corroboration",
+    "reporter_name",
+    "priority_set_by_name",
+}
+
+# The ticket page needs six independent reads. With the database ~145ms away,
+# running them one after another was most of the page's load time; run in
+# parallel they cost about one round trip. Bounded, because each worker holds
+# a pooled connection and the Supabase pooler has a small connection cap.
+_DETAIL_WORKERS = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ticket-detail")
+
+
 def _detail(
-    db: Session, ticket: Ticket, viewer: Profile, include_candidates: bool
+    db: Session,
+    ticket: Ticket,
+    viewer: Profile,
+    include_candidates: bool,
+    parallel: bool = False,
 ) -> TicketDetail:
-    detail = TicketDetail.model_validate(ticket)
+    """Everything the ticket page shows.
 
-    reporter = db.get(Profile, ticket.reporter_id)
-    detail.reporter_name = reporter.full_name if reporter else None
+    `parallel` only for plain reads: each part then runs on its own
+    connection, which cannot see rows this request has not committed yet --
+    right after a status change or a new report, the history would be stale.
+    """
+    ticket_id = ticket.id
+    people_ids = {ticket.reporter_id, ticket.priority_set_by_id} - {None}
 
-    if ticket.priority_set_by_id is not None:
-        setter = db.get(Profile, ticket.priority_set_by_id)
-        detail.priority_set_by_name = setter.full_name if setter else None
+    def people(s: Session) -> dict:
+        return {
+            p.id: p.full_name
+            for p in s.scalars(select(Profile).where(Profile.id.in_(people_ids))).all()
+        }
 
-    detail.photos = [
-        PhotoResponse(
-            id=photo.id,
-            storage_path=photo.storage_path,
-            url=signed_url(photo.storage_path),
+    def photos(s: Session) -> list[PhotoResponse]:
+        rows = s.scalars(
+            select(TicketPhoto)
+            .where(TicketPhoto.ticket_id == ticket_id)
+            .order_by(TicketPhoto.created_at)
+        ).all()
+        urls = signed_urls([p.storage_path for p in rows])
+        return [
+            PhotoResponse(id=p.id, storage_path=p.storage_path, url=urls.get(p.storage_path))
+            for p in rows
+        ]
+
+    def children(s: Session) -> list[TicketSummary]:
+        rows = s.scalars(
+            select(Ticket).where(Ticket.parent_id == ticket_id).order_by(Ticket.created_at)
+        ).all()
+        return [TicketSummary.model_validate(c) for c in rows]
+
+    def history(s: Session) -> list[StatusHistoryEntry]:
+        rows = s.scalars(
+            select(TicketStatusHistory)
+            .where(TicketStatusHistory.ticket_id == ticket_id)
+            .order_by(TicketStatusHistory.created_at)
+        ).all()
+        return [StatusHistoryEntry.model_validate(h) for h in rows]
+
+    def mine(s: Session) -> bool | None:
+        row = s.scalar(
+            select(TicketCorroboration).where(
+                TicketCorroboration.ticket_id == ticket_id,
+                TicketCorroboration.citizen_id == viewer.id,
+            )
         )
-        for photo in ticket.photos
-    ]
+        return None if row is None else row.is_confirmed
 
-    children = db.scalars(
-        select(Ticket).where(Ticket.parent_id == ticket.id).order_by(Ticket.created_at)
-    ).all()
-    detail.children = [TicketSummary.model_validate(c) for c in children]
-
-    history = db.scalars(
-        select(TicketStatusHistory)
-        .where(TicketStatusHistory.ticket_id == ticket.id)
-        .order_by(TicketStatusHistory.created_at)
-    ).all()
-    detail.history = [StatusHistoryEntry.model_validate(h) for h in history]
-
-    if include_candidates:
-        candidates = db.scalars(
+    def candidates(s: Session) -> list[DuplicateCandidateResponse]:
+        rows = s.scalars(
             select(DuplicateCandidate)
             .where(
-                DuplicateCandidate.ticket_id == ticket.id,
+                DuplicateCandidate.ticket_id == ticket_id,
                 DuplicateCandidate.status == CandidateStatus.PENDING,
             )
             .order_by(DuplicateCandidate.score.desc())
         ).all()
-        detail.duplicate_candidates = [
-            _candidate_response(db, c) for c in candidates
-        ]
+        loaded = _prefetch_candidate_tickets(s, rows)  # noqa: F841 -- keep alive
+        return [_candidate_response(s, c) for c in rows]
 
-    mine = db.scalar(
-        select(TicketCorroboration).where(
-            TicketCorroboration.ticket_id == ticket.id,
-            TicketCorroboration.citizen_id == viewer.id,
-        )
+    parts = {
+        "people": people,
+        "photos": photos,
+        "children": children,
+        "history": history,
+        "mine": mine,
+    }
+    if include_candidates:
+        parts["candidates"] = candidates
+
+    if parallel:
+        def run(part):
+            with read_session() as s:
+                return part(s)
+
+        futures = {name: _DETAIL_WORKERS.submit(run, part) for name, part in parts.items()}
+        results = {name: future.result() for name, future in futures.items()}
+    else:
+        results = {name: part(db) for name, part in parts.items()}
+
+    detail = TicketDetail.model_validate(
+        {
+            name: getattr(ticket, name)
+            for name in TicketDetail.model_fields
+            if name not in _DETAIL_PARTS and hasattr(ticket, name)
+        }
     )
-    detail.my_corroboration = None if mine is None else mine.is_confirmed
-
+    names = results["people"]
+    detail.reporter_name = names.get(ticket.reporter_id)
+    if ticket.priority_set_by_id is not None:
+        detail.priority_set_by_name = names.get(ticket.priority_set_by_id)
+    detail.photos = results["photos"]
+    detail.children = results["children"]
+    detail.history = results["history"]
+    detail.my_corroboration = results["mine"]
+    if include_candidates:
+        detail.duplicate_candidates = results["candidates"]
     return detail
 
 
@@ -171,6 +263,21 @@ async def create_ticket(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"`payload` is not valid JSON: {exc}",
         ) from exc
+
+    # The form fills this from the map pin; this covers a client that did not
+    # (older app, geocoder unreachable from the phone). Best effort -- None
+    # just leaves the coordinates to speak for themselves.
+    if not (data.address_text or "").strip():
+        place = await run_in_threadpool(
+            reverse_geocode, data.latitude, data.longitude, data.description_lang.value
+        )
+        if place is not None:
+            data.address_text = place.place_name
+
+    # Ward routing needs the English lookup. Warm it off the event loop so
+    # the (synchronous) create below finds it cached instead of blocking the
+    # server on the network; the form's /geo/reverse call usually cached it.
+    await run_in_threadpool(reverse_geocode, data.latitude, data.longitude, "en")
 
     if len(photos) > MAX_PHOTOS_PER_TICKET:
         raise HTTPException(
@@ -203,8 +310,6 @@ async def create_ticket(
         stored.append((path, phash, width, height))
 
     if stored:
-        from app.models.ticket import TicketPhoto
-
         for path, phash, width, height in stored:
             db.add(
                 TicketPhoto(
@@ -232,12 +337,18 @@ async def create_ticket(
                 db, ticket, category
             )
 
+    # Only now, with photos in, is the score final enough to act on.
+    merged = ticket_service.auto_merge_if_confident(db, ticket, candidates)
+
     db.flush()
     db.refresh(ticket)
 
+    loaded = _prefetch_candidate_tickets(db, candidates)  # noqa: F841 -- keep alive
     return TicketCreateResponse(
         ticket=_detail(db, ticket, profile, include_candidates=False),
         possible_duplicates=[_candidate_response(db, c) for c in candidates],
+        auto_merged_into=TicketSummary.model_validate(merged[0]) if merged else None,
+        auto_merge_score=merged[1].score if merged else None,
     )
 
 
@@ -283,7 +394,6 @@ def list_tickets(
             | func.lower(Ticket.public_code).like(pattern)
         )
 
-    total = db.scalar(select(func.count()).select_from(Ticket).where(*filters)) or 0
     rows = db.scalars(
         select(Ticket)
         .where(*filters)
@@ -291,6 +401,12 @@ def list_tickets(
         .limit(limit)
         .offset(offset)
     ).all()
+    # A short page is the whole remainder, so the total needs no second
+    # round trip to count -- the common case for every list in the app.
+    if len(rows) < limit:
+        total = offset + len(rows)
+    else:
+        total = db.scalar(select(func.count()).select_from(Ticket).where(*filters)) or 0
 
     return TicketListResponse(
         items=[TicketSummary.model_validate(t) for t in rows], total=total
@@ -344,7 +460,9 @@ def get_ticket(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to view this report.",
         )
-    return _detail(db, ticket, profile, include_candidates=profile.is_authority)
+    return _detail(
+        db, ticket, profile, include_candidates=profile.is_authority, parallel=True
+    )
 
 
 # ---------------------------------------------------------- corroboration
@@ -409,14 +527,9 @@ def get_comments(
     ticket = ticket_service.get_ticket(db, ticket_id)
     rows, total = ticket_service.list_comments(db, profile, ticket, limit, offset)
 
-    author_ids = {c.author_id for c in rows}
-    authors = {
-        p.id: p
-        for p in db.scalars(select(Profile).where(Profile.id.in_(author_ids))).all()
-    } if author_ids else {}
-
+    # Authors are joined into the comment query; no second lookup.
     return TicketCommentListResponse(
-        items=[_comment_response(c, profile, authors.get(c.author_id)) for c in rows],
+        items=[_comment_response(c, profile, c.author) for c in rows],
         total=total,
     )
 
@@ -560,6 +673,7 @@ def list_candidates(
         )
         .order_by(DuplicateCandidate.score.desc())
     ).all()
+    loaded = _prefetch_candidate_tickets(db, rows)  # noqa: F841 -- keep alive
     return [_candidate_response(db, c) for c in rows]
 
 
@@ -599,4 +713,5 @@ def review_queue(
         .limit(limit)
     ).all()
 
+    loaded = _prefetch_candidate_tickets(db, rows)  # noqa: F841 -- keep alive
     return [_candidate_response(db, c) for c in rows]

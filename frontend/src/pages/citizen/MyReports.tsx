@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { TicketCard } from '../../components/TicketCard'
 import { EmptyState, PageTitle, Spinner } from '../../components/ui'
 import { api } from '../../lib/api'
+import { useAuth } from '../../lib/auth'
+import { useQuery } from '../../lib/cache'
 import { useI18n } from '../../lib/i18n'
-import type { TicketStatus, TicketSummary } from '../../lib/types'
+import type { TicketStatus } from '../../lib/types'
 
 const FILTERS: (TicketStatus | 'all')[] = [
   'all',
@@ -16,34 +18,20 @@ const FILTERS: (TicketStatus | 'all')[] = [
 
 export function MyReports() {
   const { t } = useI18n()
-  const [tickets, setTickets] = useState<TicketSummary[]>([])
+  const { profile } = useAuth()
   const [filter, setFilter] = useState<TicketStatus | 'all'>('all')
-  const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-
-    api
-      .tickets({
-        mine: true,
-        status: filter === 'all' ? undefined : filter,
-        limit: 100,
-      })
-      .then((result) => {
-        if (!cancelled) setTickets(result.items)
-      })
-      .catch(() => {
-        if (!cancelled) setTickets([])
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [filter])
+  // One cache entry per filter: switching back to a tab you already opened
+  // is instant, and still refreshed.
+  const query = useQuery(profile ? `tickets:mine:${filter}:${profile.id}` : null, () =>
+    api.tickets({
+      mine: true,
+      status: filter === 'all' ? undefined : filter,
+      limit: 100,
+    }),
+  )
+  const tickets = query.data?.items ?? []
+  const loading = query.loading
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">

@@ -143,8 +143,16 @@ def rank_candidates(
     weights: MatchWeights | None = None,
     min_score: float = 0.45,
     limit: int = 5,
+    gps_slack_m: float = 0.0,
 ) -> list[MatchResult]:
-    """Score every candidate and return the plausible ones, best first."""
+    """Score every candidate and return the plausible ones, best first.
+
+    `gps_slack_m` widens the distance gate (not the score) for GPS error:
+    two phones at the same pothole routinely record points 50-100 m apart.
+    A pair in the slack band scores zero on distance, so it can still be
+    *suggested* on category and wording, but it is the caller's job not to
+    auto-merge it -- see ticket_service.auto_merge_if_confident.
+    """
     weights = weights or MatchWeights()
     weights.validate()
 
@@ -158,7 +166,7 @@ def rank_candidates(
         # describes a pothole the same way. Without this, text similarity alone
         # (0.35 category + 0.30 text = 0.65) clears any sane threshold and the
         # matcher suggests merging every pothole in the municipality.
-        if result.distance_m > radius_m:
+        if result.distance_m > radius_m + gps_slack_m:
             continue
 
         if result.score >= min_score:

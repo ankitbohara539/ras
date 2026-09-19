@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import { useEffect, useId, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { useI18n } from '../lib/i18n'
 import { usePrefs } from '../lib/prefs'
 import type { AlertSeverity, TicketPriority, TicketStatus } from '../lib/types'
@@ -196,23 +196,39 @@ export function SeverityBadge({ severity }: { severity: AlertSeverity }) {
  */
 export function SpeakButton({ text }: { text: string }) {
   const { t, language } = useI18n()
-  const { speak, stopSpeaking, speaking, speechSupported } = usePrefs()
+  const { speak, stopSpeaking, speakingId, speechIssue, speechSupported } = usePrefs()
+  // Each button has its own identity, so tapping one does not flip every
+  // other speaker icon on the page to "stop".
+  const id = useId()
+  const speaking = speakingId === id
+  const issue = speechIssue?.id === id ? speechIssue.message : null
+
+  // Leaving the page should not leave it talking.
+  useEffect(() => () => stopSpeaking(id), [id, stopSpeaking])
 
   if (!speechSupported) return null
 
   return (
-    <button
-      type="button"
-      onClick={() => (speaking ? stopSpeaking() : speak(text, language))}
-      className="btn btn-ghost"
-      style={{ minHeight: 'auto', padding: '0.25rem 0.6rem' }}
-      aria-label={speaking ? t('a11y.stop') : t('a11y.listen')}
-    >
-      <span aria-hidden="true">{speaking ? '⏹' : '\u{1F50A}'}</span>
-      <span style={{ fontSize: 'var(--step-xs)' }}>
-        {speaking ? t('a11y.stop') : t('a11y.listen')}
-      </span>
-    </button>
+    <span className="inline-flex flex-col items-end">
+      <button
+        type="button"
+        onClick={() => (speaking ? stopSpeaking(id) : speak(text, id, language))}
+        className="btn btn-ghost"
+        style={{ minHeight: 'auto', padding: '0.25rem 0.6rem' }}
+        aria-label={speaking ? t('a11y.stop') : t('a11y.listen')}
+        aria-pressed={speaking}
+      >
+        <span aria-hidden="true">{speaking ? '⏹' : '\u{1F50A}'}</span>
+        <span style={{ fontSize: 'var(--step-xs)' }}>
+          {speaking ? t('a11y.stop') : t('a11y.listen')}
+        </span>
+      </button>
+      {issue && (
+        <span role="status" className="hint" style={{ fontSize: 'var(--step-xs)' }}>
+          {issue}
+        </span>
+      )}
+    </span>
   )
 }
 

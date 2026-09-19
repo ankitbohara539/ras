@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
+import { useQuery } from '../../lib/cache'
 import { Link } from 'react-router-dom'
 import { TicketCard } from '../../components/TicketCard'
 import { EmptyState, PageTitle, Spinner, Stat } from '../../components/ui'
 import { api } from '../../lib/api'
+import { useAuth } from '../../lib/auth'
 import { useI18n } from '../../lib/i18n'
-import type { TicketStatus, TicketSummary } from '../../lib/types'
+import type { MunicipalityDetail, TicketStatus } from '../../lib/types'
 
 const FILTERS: (TicketStatus | 'all')[] = [
   'all',
@@ -15,70 +17,74 @@ const FILTERS: (TicketStatus | 'all')[] = [
 ]
 
 export function AuthorityDashboard() {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
+  const { profile, isAdmin } = useAuth()
+  const [municipality, setMunicipality] = useState<MunicipalityDetail | null>(null)
 
-  const [tickets, setTickets] = useState<TicketSummary[]>([])
-  const [filter, setFilter] = useState<TicketStatus | 'all'>('all')
-  const [counts, setCounts] = useState({ open: 0, duplicates: 0, sos: 0, resolved: 0 })
-  const [loading, setLoading] = useState(true)
-
+  // Which area this officer covers, for the heading: an officer switching
+  // between accounts (or a demo audience) should never have to guess.
   useEffect(() => {
-    let cancelled = false
-
-    async function loadCounts() {
-      try {
-        const [reported, verified, inProgress, resolved, queue, sos] =
-          await Promise.all([
-            api.tickets({ status: 'reported', limit: 1 }),
-            api.tickets({ status: 'verified', limit: 1 }),
-            api.tickets({ status: 'in_progress', limit: 1 }),
-            api.tickets({ status: 'resolved', limit: 1 }),
-            api.reviewQueue(100),
-            api.sosList('open'),
-          ])
-
-        if (cancelled) return
-        setCounts({
-          open: reported.total + verified.total + inProgress.total,
-          duplicates: queue.length,
-          sos: sos.length,
-          resolved: resolved.total,
-        })
-      } catch {
-        // Counts are decoration; the list below is the real content.
-      }
-    }
-
-    void loadCounts()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-
+    if (!profile?.municipality_id) return
     api
-      .tickets({ status: filter === 'all' ? undefined : filter, limit: 50 })
-      .then((result) => {
-        if (!cancelled) setTickets(result.items)
-      })
-      .catch(() => {
-        if (!cancelled) setTickets([])
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+      .municipality(profile.municipality_id)
+      .then(setMunicipality)
+      .catch(() => setMunicipality(null))
+  }, [profile?.municipality_id])
 
-    return () => {
-      cancelled = true
-    }
-  }, [filter])
+  const ward = municipality?.wards.find((w) => w.id === profile?.ward_id) ?? null
+  const municipalityName = municipality
+    ? language === 'ne'
+      ? municipality.name_ne
+      : municipality.name_en
+    : null
+  const wardName = ward ? (language === 'ne' ? ward.name_ne : ward.name_en) : null
+  const title = ward
+    ? `${t('auth.ward')} ${ward.number}${wardName ? ` — ${wardName}` : ''}`
+    : municipalityName
+      ? `${municipalityName} — ${t('dashboard.allWards')}`
+      : isAdmin
+        ? t('dashboard.allMunicipalities')
+        : t('dashboard.title')
+  const subtitle = ward && municipalityName ? `${municipalityName} · ${t('dashboard.title')}` : t('dashboard.title')
+
+  const [filter, setFilter] = useState<TicketStatus | 'all'>('all')
+
+  // Counts are decoration; the list below is the real content. Both come
+  // through the cache so returning to the dashboard is instant, and both are
+  // refreshed every minute -- this is the page an officer leaves open.
+  const countsQuery = useQuery(
+    profile ? `dashboard:counts:${profile.id}` : null,
+    async () => {
+      const [reported, verified, inProgress, resolved, queue, sos] = await Promise.all([
+        api.tickets({ status: 'reported', limit: 1 }),
+        api.tickets({ status: 'verified', limit: 1 }),
+        api.tickets({ status: 'in_progress', limit: 1 }),
+        api.tickets({ status: 'resolved', limit: 1 }),
+        api.reviewQueue(100),
+        api.sosList('open'),
+      ])
+      return {
+        open: reported.total + verified.total + inProgress.total,
+        duplicates: queue.length,
+        sos: sos.length,
+        resolved: resolved.total,
+      }
+    },
+    { refetchIntervalMs: 60_000 },
+  )
+  const counts = countsQuery.data ?? { open: 0, duplicates: 0, sos: 0, resolved: 0 }
+
+  const listQuery = useQuery(
+    profile ? `dashboard:list:${filter}:${profile.id}` : null,
+    () => api.tickets({ status: filter === 'all' ? undefined : filter, limit: 50 }),
+    { refetchIntervalMs: 60_000 },
+  )
+  const tickets = listQuery.data?.items ?? []
+  const loading = listQuery.loading
 
   return (
     <div className="space-y-5">
-      <PageTitle title={t('dashboard.title')} />
+      <PageTitle title={title} subtitle={subtitle} />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label={t('dashboard.open')} value={counts.open} />
