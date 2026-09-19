@@ -1,9 +1,60 @@
-from pydantic import BaseModel, EmailStr
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+from app.models.enums import AccountStatus, Language, UserRole
+
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=8, max_length=72)
+    full_name: str = Field(min_length=2, max_length=160)
+    phone: str | None = Field(default=None, max_length=32)
+
+    # Citizens are activated immediately. Requesting `authority` creates a
+    # pending account that an admin has to approve before it can do anything.
+    requested_role: UserRole = UserRole.CITIZEN
+
+    municipality_id: UUID | None = None
+    ward_id: UUID | None = None
+    preferred_language: Language = Language.EN
+
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+class ProfileResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    email: EmailStr
+    full_name: str | None
+    phone: str | None
+    role: UserRole
+    account_status: AccountStatus
+    municipality_id: UUID | None
+    ward_id: UUID | None
+    preferred_language: Language
+    large_text: bool
+    high_contrast: bool
+
+
+class RegisterResponse(BaseModel):
+    profile: ProfileResponse
+    # Pending authority accounts get no session until an admin approves them.
+    requires_approval: bool
+    message: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int | None = None
+    profile: ProfileResponse
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str

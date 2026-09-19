@@ -2,13 +2,33 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="React, FastAPI, and Supabase starter" />
-    <title>Hackathon Starter</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0d5c63" />
+    <meta
+      name="description"
+      content="Sahayatri — report local civic issues in Nepal, track them to resolution, and reach emergency services."
+    />
+
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- iOS ignores the web app manifest, so standalone mode needs these. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Sahayatri" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <title>Sahayatri — Civic Reporting</title>
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      This application needs JavaScript. For emergencies call 100 (police), 101
+      (fire) or 102 (ambulance).
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

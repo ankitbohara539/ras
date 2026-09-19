@@ -1,6 +1,7 @@
 # Dependencies and build output
 node_modules/
 dist/
+dev-dist/
 
 # Python
 __pycache__/
@@ -20,3 +21,7 @@ venv/
 .DS_Store
 Thumbs.db
 
+app/ml/artifacts/
+
+# Trained model artifacts (regenerate with: python -m scripts.train_model)
+backend/app/ml/artifacts/

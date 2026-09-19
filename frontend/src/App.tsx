@@ -1,114 +1,156 @@
-import { useEffect, useState } from 'react'
-import { getHealth, type HealthResponse } from './lib/api'
+import type { ReactNode } from 'react'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { Layout } from './components/Layout'
+import { PwaPrompts } from './components/PwaPrompts'
+import { Spinner } from './components/ui'
+import { AuthProvider, useAuth } from './lib/auth'
+import { I18nProvider } from './lib/i18n'
+import { PrefsProvider } from './lib/prefs'
+import { Approvals } from './pages/admin/Approvals'
+import { AuthorityDashboard } from './pages/authority/Dashboard'
+import { PublishAlert } from './pages/authority/PublishAlert'
+import { ReviewQueue } from './pages/authority/ReviewQueue'
+import { SosQueue } from './pages/authority/SosQueue'
+import { CitizenHome } from './pages/citizen/Home'
+import { MyReports } from './pages/citizen/MyReports'
+import { Nearby } from './pages/citizen/Nearby'
+import { ReportIssue } from './pages/citizen/ReportIssue'
+import { Services } from './pages/citizen/Services'
+import { Sos } from './pages/citizen/Sos'
+import { Login } from './pages/Login'
+import { Notifications } from './pages/Notifications'
+import { Register } from './pages/Register'
+import { TicketDetailPage } from './pages/TicketDetail'
+import { Transparency } from './pages/Transparency'
 
-type ApiState =
-  | { kind: 'loading' }
-  | { kind: 'ready'; health: HealthResponse }
-  | { kind: 'error' }
+function RequireAuth({
+  children,
+  role,
+}: {
+  children: ReactNode
+  role?: 'authority' | 'admin'
+}) {
+  const { profile, loading, isAuthority, isAdmin } = useAuth()
 
-const technologies = ['React', 'Tailwind CSS', 'FastAPI', 'Supabase']
+  if (loading) return <Spinner />
+  if (!profile) return <Navigate to="/login" replace />
 
-function App() {
-  const [api, setApi] = useState<ApiState>({ kind: 'loading' })
+  // Guarding here is a convenience, not the security boundary -- the API
+  // enforces the same rules, because anything in the browser can be edited.
+  if (role === 'admin' && !isAdmin) return <Navigate to="/" replace />
+  if (role === 'authority' && !isAuthority) return <Navigate to="/" replace />
 
-  useEffect(() => {
-    getHealth()
-      .then((health) => setApi({ kind: 'ready', health }))
-      .catch(() => setApi({ kind: 'error' }))
-  }, [])
-
-  const isOnline = api.kind === 'ready'
-  const statusLabel =
-    api.kind === 'loading'
-      ? 'Connecting to API'
-      : isOnline
-        ? 'All systems operational'
-        : 'Backend is offline'
-
-  return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-950 px-6 py-16 text-white">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute left-1/2 top-0 h-[420px] w-[700px] -translate-x-1/2 rounded-full bg-cyan-500/10 blur-[120px]" />
-        <div className="absolute bottom-0 right-0 h-80 w-80 rounded-full bg-indigo-500/10 blur-[100px]" />
-        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:48px_48px] [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]" />
-      </div>
-
-      <section className="relative mx-auto flex w-full max-w-4xl flex-col items-center text-center">
-        {/* <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-slate-300 shadow-lg shadow-black/10 backdrop-blur-sm">
-          <span
-            className={`h-2 w-2 rounded-full ${
-              api.kind === 'loading'
-                ? 'animate-pulse bg-amber-400'
-                : isOnline
-                  ? 'bg-emerald-400'
-                  : 'bg-rose-400'
-            }`}
-          />
-          {statusLabel}
-        </div> */}
-
-        <p className="mb-5 text-sm font-semibold uppercase tracking-[0.32em] text-cyan-300">
-          Team RAS
-        </p>
-
-        <h1 className="max-w-4xl text-balance text-5xl font-bold leading-[1.08] tracking-[-0.04em] sm:text-7xl lg:text-8xl">
-          Let&apos;s build something{' '}
-          <span className="bg-gradient-to-r from-cyan-300 via-sky-400 to-indigo-400 bg-clip-text text-transparent">
-            remarkable.
-          </span>
-        </h1>
-
-       
-
-        <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
-          {technologies.map((technology) => (
-            <span
-              key={technology}
-              className="rounded-full border border-slate-800 bg-slate-900/70 px-4 py-2 text-sm font-medium text-slate-300 backdrop-blur"
-            >
-              {technology}
-            </span>
-          ))}
-        </div>
-
-        <div className="mt-12 flex flex-col items-center gap-4 sm:flex-row">
-          <a
-            href="http://localhost:8000/docs"
-            target="_blank"
-            rel="noreferrer"
-            className="group inline-flex items-center gap-2 rounded-xl bg-white px-6 py-3.5 text-sm font-semibold text-slate-950 shadow-xl shadow-white/5 transition hover:-translate-y-0.5 hover:bg-cyan-50"
-          >
-            Explore the API
-            <svg
-              viewBox="0 0 20 20"
-              fill="none"
-              aria-hidden="true"
-              className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
-            >
-              <path
-                d="M4.167 10h11.666m-4.166-4.167L15.833 10l-4.166 4.167"
-                stroke="currentColor"
-                strokeWidth="1.7"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </a>
-
-          <a
-            href="https://supabase.com/dashboard"
-            target="_blank"
-            rel="noreferrer"
-            className="rounded-xl border border-white/10 bg-white/[0.04] px-6 py-3.5 text-sm font-semibold text-slate-200 transition hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[0.08]"
-          >
-            Open Supabase
-          </a>
-        </div>
-
-       
-      </section>
-    </main>
-  )
+  return <>{children}</>
 }
 
-export default App
+function HomeRedirect() {
+  const { isAuthority } = useAuth()
+  return isAuthority ? <Navigate to="/authority" replace /> : <CitizenHome />
+}
+
+function PublicOnly({ children }: { children: ReactNode }) {
+  const { profile, loading } = useAuth()
+
+  if (loading) return <Spinner />
+  if (profile) {
+    return (
+      <Navigate to={profile.role === 'citizen' ? '/' : '/authority'} replace />
+    )
+  }
+  return <>{children}</>
+}
+
+export default function App() {
+  return (
+    <I18nProvider>
+      <PrefsProvider>
+        <BrowserRouter>
+          <AuthProvider>
+            <PwaPrompts />
+            <Routes>
+              <Route
+                path="/login"
+                element={
+                  <PublicOnly>
+                    <Login />
+                  </PublicOnly>
+                }
+              />
+              <Route
+                path="/register"
+                element={
+                  <PublicOnly>
+                    <Register />
+                  </PublicOnly>
+                }
+              />
+              {/* No auth, no PublicOnly redirect -- this is the one page meant
+                  to be shared with someone who never logs in at all. */}
+              <Route path="/transparency" element={<Transparency />} />
+
+              <Route
+                element={
+                  <RequireAuth>
+                    <Layout />
+                  </RequireAuth>
+                }
+              >
+                <Route index element={<HomeRedirect />} />
+                <Route path="report" element={<ReportIssue />} />
+                <Route path="my-reports" element={<MyReports />} />
+                <Route path="nearby" element={<Nearby />} />
+                <Route path="services" element={<Services />} />
+                <Route path="sos" element={<Sos />} />
+                <Route path="notifications" element={<Notifications />} />
+                <Route path="tickets/:id" element={<TicketDetailPage />} />
+
+                <Route
+                  path="authority"
+                  element={
+                    <RequireAuth role="authority">
+                      <AuthorityDashboard />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="authority/duplicates"
+                  element={
+                    <RequireAuth role="authority">
+                      <ReviewQueue />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="authority/emergencies"
+                  element={
+                    <RequireAuth role="authority">
+                      <SosQueue />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="authority/alerts"
+                  element={
+                    <RequireAuth role="authority">
+                      <PublishAlert />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="admin/approvals"
+                  element={
+                    <RequireAuth role="admin">
+                      <Approvals />
+                    </RequireAuth>
+                  }
+                />
+              </Route>
+
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </AuthProvider>
+        </BrowserRouter>
+      </PrefsProvider>
+    </I18nProvider>
+  )
+}
