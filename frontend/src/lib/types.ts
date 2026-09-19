@@ -118,6 +118,8 @@ export type TicketSummary = {
   corroboration_count: number
   dispute_count: number
   community_verified: boolean
+  // True when a human fixed the priority; automation leaves it alone.
+  priority_locked: boolean
   created_at: string
   resolved_at: string | null
   distance_m: number | null
@@ -156,6 +158,9 @@ export type TicketDetail = TicketSummary & {
   category_confidence: number | null
   resolution_note: string | null
   verified_at: string | null
+  priority_set_at: string | null
+  priority_note: string | null
+  priority_set_by_name: string | null
   photos: Photo[]
   children: TicketSummary[]
   history: StatusHistoryEntry[]
@@ -169,6 +174,52 @@ export type TicketCreateResponse = {
 }
 
 export type TicketListResponse = { items: TicketSummary[]; total: number }
+
+export type TicketComment = {
+  id: string
+  ticket_id: string
+  author_id: string
+  author_name: string | null
+  author_role: 'citizen' | 'authority' | 'admin' | null
+  body: string
+  created_at: string
+  is_mine: boolean
+}
+
+export type TicketCommentListResponse = { items: TicketComment[]; total: number }
+
+export type CategoryStat = {
+  key: string
+  name_en: string
+  name_ne: string
+  total: number
+  resolved: number
+  median_resolution_hours: number | null
+}
+
+export type WardStat = {
+  number: number
+  name_en: string | null
+  name_ne: string | null
+  total: number
+  open: number
+  resolved: number
+  median_resolution_hours: number | null
+}
+
+export type PublicStats = {
+  municipality_code: string
+  municipality_name_en: string
+  municipality_name_ne: string
+  total_tickets: number
+  open_tickets: number
+  resolved_tickets: number
+  resolved_this_month: number
+  median_resolution_hours: number | null
+  by_category: CategoryStat[]
+  by_ward: WardStat[]
+  generated_at: string
+}
 
 export type SosRequest = {
   id: string

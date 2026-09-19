@@ -58,6 +58,9 @@ class TicketSummary(BaseModel):
     corroboration_count: int
     dispute_count: int
     community_verified: bool
+    # True when a human fixed the priority, so neither scoring nor the age
+    # ladder will move it. Shown as a lock on the badge.
+    priority_locked: bool = False
     created_at: datetime
     resolved_at: datetime | None
 
@@ -104,6 +107,9 @@ class TicketDetail(TicketSummary):
     category_confidence: float | None = None
     resolution_note: str | None = None
     verified_at: datetime | None = None
+    priority_set_at: datetime | None = None
+    priority_note: str | None = None
+    priority_set_by_name: str | None = None
 
     photos: list[PhotoResponse] = []
     children: list[TicketSummary] = []
@@ -137,6 +143,17 @@ class AssignRequest(BaseModel):
     priority: TicketPriority | None = None
 
 
+class PriorityUpdateRequest(BaseModel):
+    """Set priority by hand, or hand it back to automation.
+
+    `priority: null` clears the override and recomputes from the score and the
+    age ladder. Without that, an override would be one-way.
+    """
+
+    priority: TicketPriority | None = None
+    note: str | None = Field(default=None, max_length=500)
+
+
 class MergeRequest(BaseModel):
     """Fold one ticket under another as a duplicate."""
 
@@ -148,6 +165,29 @@ class ReassignWardRequest(BaseModel):
     """Correct GPS routing that put a ticket in the wrong ward."""
 
     ward_id: UUID
+
+
+class TicketCommentCreateRequest(BaseModel):
+    body: str = Field(min_length=1, max_length=2000)
+
+
+class TicketCommentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    ticket_id: UUID
+    author_id: UUID
+    author_name: str | None = None
+    author_role: str | None = None
+    body: str
+    created_at: datetime
+    # True when the caller wrote this comment, so the UI can offer delete.
+    is_mine: bool = False
+
+
+class TicketCommentListResponse(BaseModel):
+    items: list[TicketCommentResponse]
+    total: int
 
 
 class CorroborationRequest(BaseModel):

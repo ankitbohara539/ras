@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
+import { PwaPrompts } from './components/PwaPrompts'
 import { Spinner } from './components/ui'
 import { AuthProvider, useAuth } from './lib/auth'
 import { I18nProvider } from './lib/i18n'
@@ -20,6 +21,7 @@ import { Login } from './pages/Login'
 import { Notifications } from './pages/Notifications'
 import { Register } from './pages/Register'
 import { TicketDetailPage } from './pages/TicketDetail'
+import { Transparency } from './pages/Transparency'
 
 function RequireAuth({
   children,
@@ -64,6 +66,7 @@ export default function App() {
       <PrefsProvider>
         <BrowserRouter>
           <AuthProvider>
+            <PwaPrompts />
             <Routes>
               <Route
                 path="/login"
@@ -81,6 +84,9 @@ export default function App() {
                   </PublicOnly>
                 }
               />
+              {/* No auth, no PublicOnly redirect -- this is the one page meant
+                  to be shared with someone who never logs in at all. */}
+              <Route path="/transparency" element={<Transparency />} />
 
               <Route
                 element={

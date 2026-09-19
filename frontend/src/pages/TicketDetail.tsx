@@ -15,7 +15,7 @@ import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { formatDate, formatDistance, useGeolocation } from '../lib/geo'
 import { useI18n } from '../lib/i18n'
-import type { TicketDetail as Ticket, TicketStatus, Ward } from '../lib/types'
+import type { TicketComment, TicketDetail as Ticket, TicketStatus, Ward } from '../lib/types'
 
 const NEXT_STATUSES: Record<TicketStatus, TicketStatus[]> = {
   reported: ['verified', 'in_progress', 'rejected'],
@@ -63,7 +63,13 @@ export function TicketDetailPage() {
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
   const [wards, setWards] = useState<Ward[]>([])
+  const [priorityNote, setPriorityNote] = useState('')
   const [showReassign, setShowReassign] = useState(false)
+
+  const [comments, setComments] = useState<TicketComment[]>([])
+  const [commentDraft, setCommentDraft] = useState('')
+  const [commentBusy, setCommentBusy] = useState(false)
+  const [commentError, setCommentError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -79,6 +85,49 @@ export function TicketDetailPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  const loadComments = useCallback(async () => {
+    if (!id) return
+    try {
+      const result = await api.comments(id)
+      setComments(result.items)
+    } catch {
+      // The ticket load already surfaces a permission error; failing quietly
+      // here just means an empty thread instead of a second error banner.
+    }
+  }, [id])
+
+  useEffect(() => {
+    void loadComments()
+  }, [loadComments])
+
+  const submitComment = async () => {
+    if (!id || !commentDraft.trim()) return
+    setCommentBusy(true)
+    setCommentError(null)
+    try {
+      await api.postComment(id, commentDraft.trim())
+      setCommentDraft('')
+      await loadComments()
+    } catch (err) {
+      setCommentError(err instanceof Error ? err.message : t('common.error'))
+    } finally {
+      setCommentBusy(false)
+    }
+  }
+
+  const removeComment = async (commentId: string) => {
+    if (!id) return
+    setCommentBusy(true)
+    try {
+      await api.deleteComment(id, commentId)
+      await loadComments()
+    } catch (err) {
+      setCommentError(err instanceof Error ? err.message : t('common.error'))
+    } finally {
+      setCommentBusy(false)
+    }
+  }
 
   useEffect(() => {
     if (!showReassign || !ticket) return
@@ -139,6 +188,11 @@ export function TicketDetailPage() {
           </span>
           <StatusBadge status={ticket.status} />
           {isAuthority && <PriorityBadge priority={ticket.priority} />}
+          {isAuthority && ticket.priority_locked && (
+            <span className="chip" title={t('priority.lockedHint')}>
+              🔒 {t('priority.manual')}
+            </span>
+          )}
           {ticket.community_verified && (
             <span
               className="chip"
@@ -444,6 +498,78 @@ export function TicketDetailPage() {
         </Card>
       )}
 
+      {/* Priority is computed -- category severity, how many people reported
+          it, and how long it has gone unresolved. An officer standing in
+          front of the problem knows things the formula does not, so they can
+          overrule it; doing so locks the ticket, because an override the next
+          corroboration silently wipes is worse than no override at all. */}
+      {isAuthority && !ticket.parent_id && (
+        <Card>
+          <h2 className="font-bold" style={{ fontSize: 'var(--step-md)' }}>
+            {t('priority.title')}
+          </h2>
+          <p className="mt-1 hint">
+            {ticket.priority_locked
+              ? t('priority.lockedHint')
+              : t('priority.autoHint')}
+          </p>
+
+          {ticket.priority_locked && ticket.priority_set_by_name && (
+            <p className="mt-2" style={{ fontSize: 'var(--step-sm)' }}>
+              {t('priority.setBy')} {ticket.priority_set_by_name}
+              {ticket.priority_set_at
+                ? ` · ${formatDate(ticket.priority_set_at, language)}`
+                : ''}
+              {ticket.priority_note ? ` — ${ticket.priority_note}` : ''}
+            </p>
+          )}
+
+          <div className="mt-3">
+            <Field label={t('priority.reason')}>
+              <input
+                className="field"
+                value={priorityNote}
+                onChange={(e) => setPriorityNote(e.target.value)}
+                maxLength={500}
+                placeholder={t('priority.reasonHint')}
+              />
+            </Field>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(['low', 'medium', 'high', 'critical'] as const).map((level) => (
+              <Button
+                key={level}
+                variant={ticket.priority === level ? 'primary' : 'secondary'}
+                disabled={busy}
+                onClick={() =>
+                  act(() =>
+                    api.setPriority(ticket.id, level, priorityNote || undefined),
+                  ).then(() => setPriorityNote(''))
+                }
+              >
+                {t(`ticket.${level}` as never)}
+              </Button>
+            ))}
+          </div>
+
+          {ticket.priority_locked && (
+            <Button
+              variant="ghost"
+              className="mt-3"
+              disabled={busy}
+              onClick={() =>
+                act(() => api.setPriority(ticket.id, null)).then(() =>
+                  setPriorityNote(''),
+                )
+              }
+            >
+              ↩ {t('priority.clear')}
+            </Button>
+          )}
+        </Card>
+      )}
+
       {isAuthority && ticket.parent_id && (
         <Card>
           <Button
@@ -554,6 +680,84 @@ export function TicketDetailPage() {
           </ol>
         </Card>
       )}
+
+      {/* Visible to anyone who could load this ticket at all -- any citizen
+          in the municipality, the ward authority, an admin -- because
+          "when will this be fixed?" asked where the ward office and a
+          neighbour both see it is the point of a public thread. */}
+      <Card>
+        <h2 className="font-bold" style={{ fontSize: 'var(--step-md)' }}>
+          {t('comments.title')} {comments.length > 0 ? `(${comments.length})` : ''}
+        </h2>
+
+        {commentError && <ErrorNote message={commentError} />}
+
+        {comments.length === 0 ? (
+          <p className="mt-2 hint">{t('comments.none')}</p>
+        ) : (
+          <ul className="mt-3 space-y-3">
+            {comments.map((comment) => (
+              <li
+                key={comment.id}
+                className="rounded-lg p-3"
+                style={{ background: 'var(--color-canvas)' }}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="font-semibold" style={{ fontSize: 'var(--step-sm)' }}>
+                      {comment.author_name ?? t('comments.someone')}
+                    </span>
+                    {comment.author_role && comment.author_role !== 'citizen' && (
+                      <span
+                        className="chip ml-2"
+                        style={{ fontSize: 'var(--step-xs)', padding: '0.05rem 0.5rem' }}
+                      >
+                        {t(`comments.role.${comment.author_role}` as never)}
+                      </span>
+                    )}
+                  </div>
+                  {(comment.is_mine || isAuthority) && (
+                    <button
+                      type="button"
+                      className="hint"
+                      disabled={commentBusy}
+                      onClick={() => removeComment(comment.id)}
+                      aria-label={t('common.delete')}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <p className="mt-1" style={{ fontSize: 'var(--step-sm)' }}>
+                  {comment.body}
+                </p>
+                <p className="mt-1 hint">{formatDate(comment.created_at, language)}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div className="mt-4">
+          <Field label={t('comments.addLabel')}>
+            <textarea
+              className="field"
+              rows={2}
+              value={commentDraft}
+              onChange={(e) => setCommentDraft(e.target.value)}
+              maxLength={2000}
+              placeholder={t('comments.placeholder')}
+            />
+          </Field>
+          <Button
+            variant="secondary"
+            className="mt-2"
+            disabled={commentBusy || !commentDraft.trim()}
+            onClick={submitComment}
+          >
+            {t('comments.post')}
+          </Button>
+        </div>
+      </Card>
     </div>
   )
 }

@@ -28,6 +28,21 @@ class Settings(BaseSettings):
     # Corroborations needed before a ticket earns the community-verified badge.
     corroboration_threshold: int = 3
 
+    # Age escalation. An unresolved ticket climbs the priority ladder on its
+    # own, so a low-severity complaint cannot be ignored indefinitely:
+    #   low -> medium after 7 days open
+    #   medium -> high after a further 3 days (day 10 for a ticket born low,
+    #             day 3 for one that was medium from the start)
+    # Escalation stops at high. Critical is reserved for what is genuinely
+    # dangerous, and age alone is not danger.
+    escalate_low_to_medium_days: int = 7
+    escalate_medium_to_high_days: int = 3
+
+    # The public transparency page has no login, so it shows one municipality
+    # rather than exposing every seeded municipality to an anonymous visitor.
+    # A picker across municipalities is a real feature; this is the demo shape.
+    public_stats_municipality_code: str = "KMC"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

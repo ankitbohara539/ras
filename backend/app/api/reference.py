@@ -10,12 +10,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import get_settings
 from app.core.geo import bounding_box, haversine_m
 from app.db.session import get_db
 from app.models.category import Category
 from app.models.emergency import CivicService
 from app.models.enums import ServiceType
 from app.models.geography import Municipality, Ward
+from app.schema.public import PublicStatsResponse
 from app.schema.reference import (
     CategoryResponse,
     CivicServiceListItem,
@@ -23,6 +25,7 @@ from app.schema.reference import (
     MunicipalityResponse,
     WardResponse,
 )
+from app.services.stats_service import compute_public_stats
 
 router = APIRouter(tags=["Reference"])
 
@@ -147,3 +150,18 @@ def list_services(
         items.sort(key=lambda i: (i.distance_m is not None, i.distance_m or 0.0))
 
     return items[:limit]
+
+
+@router.get("/public/stats", response_model=PublicStatsResponse)
+def public_stats(
+    municipality_code: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> PublicStatsResponse:
+    """Transparency numbers for one municipality. No login, no per-ticket data.
+
+    Counts, medians and category/ward breakdowns only -- nothing here carries
+    a title, description, photo or exact coordinate. That boundary is what
+    makes this endpoint safe to leave unauthenticated.
+    """
+    code = municipality_code or get_settings().public_stats_municipality_code
+    return compute_public_stats(db, code)

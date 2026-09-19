@@ -34,3 +34,9 @@ class AdminProfileUpdateRequest(BaseModel):
     account_status: AccountStatus | None = None
     municipality_id: UUID | None = None
     ward_id: UUID | None = None
+
+
+class EscalationSweepResponse(BaseModel):
+    """How many tickets the age ladder moved on this pass."""
+
+    escalated: int

@@ -33,6 +33,7 @@ from app.models.profile import Profile
 from app.models.ticket import (
     DuplicateCandidate,
     Ticket,
+    TicketComment,
     TicketCorroboration,
     TicketPhoto,
     TicketStatusHistory,
@@ -112,11 +113,24 @@ def generate_public_code(db: Session, ward: Ward) -> str:
     )
 
 
+PRIORITY_RANK: dict[TicketPriority, int] = {
+    TicketPriority.LOW: 0,
+    TicketPriority.MEDIUM: 1,
+    TicketPriority.HIGH: 2,
+    TicketPriority.CRITICAL: 3,
+}
+
+
 def compute_priority(ticket: Ticket, category: Category) -> TicketPriority:
     """Blend category severity with how many people are affected.
 
     Twelve reports of one pothole should outrank one report of the same
     pothole -- that fan-in is the reason for merging duplicates at all.
+
+    This is the *scored* priority only. Age is handled separately by
+    `escalate_for_age`, because a ladder with named steps is something an
+    officer can predict and a citizen can be told ("nobody touched it for a
+    week, so it moved up"), which a soft nudge inside a score is not.
     """
     # Column defaults are applied at flush, so a not-yet-inserted ticket still
     # has None in its counters. Coalesce rather than reorder the caller.
@@ -136,10 +150,6 @@ def compute_priority(ticket: Ticket, category: Category) -> TicketPriority:
     # Disputes pull it back down.
     score -= min(0.20, 0.07 * disputes)
 
-    age_days = (_now() - ticket.created_at).days if ticket.created_at else 0
-    if age_days > 14:
-        score += 0.10
-
     if score >= 1.00:
         return TicketPriority.CRITICAL
     if score >= 0.75:
@@ -147,6 +157,62 @@ def compute_priority(ticket: Ticket, category: Category) -> TicketPriority:
     if score >= 0.50:
         return TicketPriority.MEDIUM
     return TicketPriority.LOW
+
+
+def escalate_for_age(
+    base: TicketPriority,
+    created_at: datetime | None,
+    ticket_status: TicketStatus,
+) -> TicketPriority:
+    """Climb the ladder for a ticket nobody has resolved.
+
+    low -> medium after `escalate_low_to_medium_days` open, then
+    medium -> high after a further `escalate_medium_to_high_days`.
+
+    The days are counted from `created_at` and the ladder starts at whatever
+    the score says, so a ticket that is medium on severity alone reaches high
+    in 3 days while one that starts low takes 10. That is the intent: a
+    mid-severity problem left alone should not wait as long as a minor one.
+
+    Escalation stops at high. Critical means dangerous, and age is not danger
+    -- an officer who thinks otherwise can set it by hand.
+    """
+    if ticket_status not in OPEN_STATUSES or created_at is None:
+        return base
+
+    settings = get_settings()
+    age_days = (_now() - created_at).days
+
+    if base is TicketPriority.LOW:
+        threshold_high = (
+            settings.escalate_low_to_medium_days + settings.escalate_medium_to_high_days
+        )
+        if age_days >= threshold_high:
+            return TicketPriority.HIGH
+        if age_days >= settings.escalate_low_to_medium_days:
+            return TicketPriority.MEDIUM
+        return base
+
+    if base is TicketPriority.MEDIUM:
+        if age_days >= settings.escalate_medium_to_high_days:
+            return TicketPriority.HIGH
+        return base
+
+    return base
+
+
+def apply_priority(ticket: Ticket, category: Category) -> TicketPriority:
+    """Set `ticket.priority` from the score and the age ladder.
+
+    The single place automatic priority is written. A locked ticket is left
+    exactly as the human left it.
+    """
+    if ticket.priority_locked:
+        return ticket.priority
+
+    scored = compute_priority(ticket, category)
+    ticket.priority = escalate_for_age(scored, ticket.created_at, ticket.status)
+    return ticket.priority
 
 
 def _notify(
@@ -360,7 +426,7 @@ def create_ticket(
         predicted_category_key=predicted_key,
         category_confidence=confidence,
     )
-    ticket.priority = compute_priority(ticket, category)
+    apply_priority(ticket, category)
     db.add(ticket)
     db.flush()
 
@@ -406,6 +472,30 @@ def scope_filter(profile: Profile):
     if profile.municipality_id is not None:
         return [Ticket.municipality_id == profile.municipality_id]
     return []
+
+
+def can_view_ticket(profile: Profile, ticket: Ticket) -> bool:
+    """Whether this profile is inside the ticket's audience.
+
+    The single-row twin of `scope_filter`, for the endpoints that already
+    have one ticket in hand -- reading it directly, and reading or posting
+    its comments -- and need a yes/no instead of a WHERE clause. Keep the two
+    in sync: this is the same rule, just checked against a row instead of
+    applied to a query.
+    """
+    if profile.role is UserRole.ADMIN:
+        return True
+
+    if profile.role is UserRole.AUTHORITY:
+        if profile.ward_id is not None:
+            return ticket.ward_id == profile.ward_id
+        if profile.municipality_id is not None:
+            return ticket.municipality_id == profile.municipality_id
+        return False
+
+    if profile.municipality_id is not None:
+        return ticket.municipality_id == profile.municipality_id
+    return True
 
 
 def get_ticket(db: Session, ticket_id: UUID) -> Ticket:
@@ -467,7 +557,7 @@ def merge_tickets(
     parent.child_count = (parent.child_count or 0) + 1
     category = db.get(Category, parent.category_id)
     if category is not None:
-        parent.priority = compute_priority(parent, category)
+        apply_priority(parent, category)
 
     # Close out the suggestion that led here, and drop the rest.
     db.query(DuplicateCandidate).filter(
@@ -534,7 +624,7 @@ def split_ticket(db: Session, authority: Profile, child: Ticket) -> Ticket:
         parent.child_count = max(0, (parent.child_count or 0) - 1)
         category = db.get(Category, parent.category_id)
         if category is not None:
-            parent.priority = compute_priority(parent, category)
+            apply_priority(parent, category)
 
     _record_status(
         db,
@@ -716,10 +806,149 @@ def assign_ticket(
         ticket.assigned_to_id = None
 
     if priority is not None:
-        ticket.priority = priority
+        set_priority(db, authority, ticket, priority)
 
     db.flush()
     return ticket
+
+
+# -------------------------------------------------------------- priority
+
+
+def set_priority(
+    db: Session,
+    actor: Profile,
+    ticket: Ticket,
+    priority: TicketPriority | None,
+    note: str | None = None,
+) -> Ticket:
+    """Override priority by hand, or hand it back to automation.
+
+    `priority=None` clears the lock and recomputes, which is the only way back:
+    an override with no exit is a trap, and an officer who over-escalated one
+    ticket in a busy week should be able to undo it.
+
+    Ward isolation still applies -- an officer can re-prioritise their own
+    ward's tickets, an admin anyone's.
+    """
+    assert_can_access_ward(actor, ticket.ward_id)
+
+    if ticket.parent_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This ticket is a duplicate; it follows its parent. "
+                "Set the priority on the parent instead."
+            ),
+        )
+
+    previous = ticket.priority
+
+    if priority is None:
+        ticket.priority_locked = False
+        ticket.priority_set_by_id = None
+        ticket.priority_set_at = None
+        ticket.priority_note = None
+
+        category = db.get(Category, ticket.category_id)
+        if category is not None:
+            apply_priority(ticket, category)
+
+        detail = f"Priority returned to automatic ({ticket.priority.value})"
+    else:
+        ticket.priority = priority
+        ticket.priority_locked = True
+        ticket.priority_set_by_id = actor.id
+        ticket.priority_set_at = _now()
+        ticket.priority_note = note
+        detail = f"Priority set to {priority.value} by hand"
+
+    if ticket.priority is not previous or priority is not None:
+        _record_status(
+            db,
+            ticket,
+            ticket.status,
+            ticket.status,
+            actor.id,
+            f"{detail}{f' -- {note}' if note else ''}",
+        )
+
+    db.flush()
+    return ticket
+
+
+# The sweep is throttled per process rather than scheduled. A cron or a
+# background worker would be the right answer in production; for a system
+# running on one box, recomputing on read is correct the moment anyone looks
+# and costs nothing when nobody does.
+_ESCALATION_SWEEP_INTERVAL = timedelta(minutes=5)
+_last_escalation_sweep: datetime | None = None
+
+
+def sweep_escalations(db: Session, force: bool = False) -> int:
+    """Re-apply the age ladder to every open, unlocked ticket.
+
+    Returns how many tickets actually moved. Without this, a ticket sitting
+    untouched for a week would never escalate -- nothing writes to it, and
+    being untouched is precisely the condition escalation exists to catch.
+    """
+    global _last_escalation_sweep
+
+    now = _now()
+    if (
+        not force
+        and _last_escalation_sweep is not None
+        and now - _last_escalation_sweep < _ESCALATION_SWEEP_INTERVAL
+    ):
+        return 0
+    _last_escalation_sweep = now
+
+    settings = get_settings()
+    oldest_relevant = now - timedelta(
+        days=min(
+            settings.escalate_low_to_medium_days,
+            settings.escalate_medium_to_high_days,
+        )
+    )
+
+    tickets = db.scalars(
+        select(Ticket).where(
+            Ticket.status.in_(OPEN_STATUSES),
+            Ticket.priority_locked.is_(False),
+            Ticket.parent_id.is_(None),
+            Ticket.created_at <= oldest_relevant,
+        )
+    ).all()
+    if not tickets:
+        return 0
+
+    categories = {c.id: c for c in db.scalars(select(Category)).all()}
+
+    moved = 0
+    for ticket in tickets:
+        category = categories.get(ticket.category_id)
+        if category is None:
+            continue
+
+        previous = ticket.priority
+        if apply_priority(ticket, category) is not previous:
+            moved += 1
+            _record_status(
+                db,
+                ticket,
+                ticket.status,
+                ticket.status,
+                None,
+                (
+                    f"Priority escalated {previous.value} -> "
+                    f"{ticket.priority.value} after "
+                    f"{(now - ticket.created_at).days} days unresolved"
+                ),
+            )
+
+    if moved:
+        db.flush()
+    return moved
 
 
 # ----------------------------------------------------------- corroboration
@@ -799,7 +1028,7 @@ def corroborate(
         ticket.community_verified = True
 
     if category is not None:
-        ticket.priority = compute_priority(ticket, category)
+        apply_priority(ticket, category)
 
     if is_confirmed:
         _notify(
@@ -814,3 +1043,99 @@ def corroborate(
 
     db.flush()
     return ticket, distance
+
+
+# --------------------------------------------------------------- comments
+
+
+def add_comment(db: Session, author: Profile, ticket: Ticket, body: str) -> TicketComment:
+    """Post to a ticket's discussion thread.
+
+    Anyone who can view the ticket can post -- same audience as `can_view_ticket`,
+    which is the whole point of a public thread instead of a private one.
+    A child ticket has no thread of its own; it follows its parent, same as
+    status.
+    """
+    if not can_view_ticket(author, ticket):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to view this report.",
+        )
+
+    if ticket.parent_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This ticket is a duplicate; it follows its parent. "
+                "Comment on the parent instead."
+            ),
+        )
+
+    comment = TicketComment(ticket_id=ticket.id, author_id=author.id, body=body)
+    db.add(comment)
+    db.flush()
+
+    # Notify the people actually responsible for this ticket, not everyone in
+    # the municipality who happens to be able to see it -- the thread is
+    # public, but a notification for every viewer would be spam.
+    notify_ids = {ticket.reporter_id, ticket.assigned_to_id} - {author.id, None}
+    for user_id in notify_ids:
+        _notify(
+            db,
+            user_id,
+            NotificationType.TICKET_COMMENTED,
+            f"New comment on {ticket.public_code}",
+            f"{ticket.public_code} मा नयाँ टिप्पणी",
+            body[:200],
+            ticket_id=ticket.id,
+        )
+
+    return comment
+
+
+def list_comments(
+    db: Session, viewer: Profile, ticket: Ticket, limit: int = 100, offset: int = 0
+) -> tuple[list[TicketComment], int]:
+    if not can_view_ticket(viewer, ticket):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to view this report.",
+        )
+
+    total = (
+        db.scalar(
+            select(func.count())
+            .select_from(TicketComment)
+            .where(TicketComment.ticket_id == ticket.id)
+        )
+        or 0
+    )
+    rows = db.scalars(
+        select(TicketComment)
+        .where(TicketComment.ticket_id == ticket.id)
+        .order_by(TicketComment.created_at)
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    return list(rows), total
+
+
+def delete_comment(
+    db: Session, actor: Profile, ticket: Ticket, comment: TicketComment
+) -> None:
+    """Remove a comment: its own author, or the ward authority moderating it.
+
+    Ward isolation still applies to the moderation path -- an authority can
+    only reach into threads on tickets it can already act on.
+    """
+    if comment.ticket_id != ticket.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No such comment."
+        )
+
+    is_own = comment.author_id == actor.id
+    if not is_own:
+        assert_can_access_ward(actor, ticket.ward_id)
+
+    db.delete(comment)
+    db.flush()

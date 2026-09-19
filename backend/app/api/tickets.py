@@ -23,6 +23,7 @@ from app.models.profile import Profile
 from app.models.ticket import (
     DuplicateCandidate,
     Ticket,
+    TicketComment,
     TicketCorroboration,
     TicketStatusHistory,
 )
@@ -33,9 +34,13 @@ from app.schema.ticket import (
     DuplicateCandidateResponse,
     MergeRequest,
     PhotoResponse,
+    PriorityUpdateRequest,
     ReassignWardRequest,
     StatusHistoryEntry,
     StatusUpdateRequest,
+    TicketCommentCreateRequest,
+    TicketCommentListResponse,
+    TicketCommentResponse,
     TicketCreateRequest,
     TicketCreateResponse,
     TicketDetail,
@@ -89,6 +94,10 @@ def _detail(
 
     reporter = db.get(Profile, ticket.reporter_id)
     detail.reporter_name = reporter.full_name if reporter else None
+
+    if ticket.priority_set_by_id is not None:
+        setter = db.get(Profile, ticket.priority_set_by_id)
+        detail.priority_set_by_name = setter.full_name if setter else None
 
     detail.photos = [
         PhotoResponse(
@@ -248,6 +257,11 @@ def list_tickets(
     profile: Profile = Depends(get_current_profile),
     db: Session = Depends(get_db),
 ) -> TicketListResponse:
+    # Age escalation has no scheduler behind it. Sweeping here (throttled to
+    # once every few minutes) means a ticket that has gone stale has already
+    # moved by the time anyone opens a queue to look at it.
+    ticket_service.sweep_escalations(db)
+
     filters = list(ticket_service.scope_filter(profile))
 
     if mine:
@@ -325,6 +339,11 @@ def get_ticket(
     db: Session = Depends(get_db),
 ) -> TicketDetail:
     ticket = ticket_service.get_ticket(db, ticket_id)
+    if not ticket_service.can_view_ticket(profile, ticket):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to view this report.",
+        )
     return _detail(db, ticket, profile, include_candidates=profile.is_authority)
 
 
@@ -368,6 +387,68 @@ def corroborate_ticket(
     )
 
 
+# -------------------------------------------------------------- comments
+
+
+def _comment_response(comment, viewer: Profile, author: Profile | None) -> TicketCommentResponse:
+    response = TicketCommentResponse.model_validate(comment)
+    response.author_name = author.full_name if author else None
+    response.author_role = author.role.value if author else None
+    response.is_mine = comment.author_id == viewer.id
+    return response
+
+
+@router.get("/{ticket_id}/comments", response_model=TicketCommentListResponse)
+def get_comments(
+    ticket_id: UUID,
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    profile: Profile = Depends(get_current_profile),
+    db: Session = Depends(get_db),
+) -> TicketCommentListResponse:
+    ticket = ticket_service.get_ticket(db, ticket_id)
+    rows, total = ticket_service.list_comments(db, profile, ticket, limit, offset)
+
+    author_ids = {c.author_id for c in rows}
+    authors = {
+        p.id: p
+        for p in db.scalars(select(Profile).where(Profile.id.in_(author_ids))).all()
+    } if author_ids else {}
+
+    return TicketCommentListResponse(
+        items=[_comment_response(c, profile, authors.get(c.author_id)) for c in rows],
+        total=total,
+    )
+
+
+@router.post("/{ticket_id}/comments", response_model=TicketCommentResponse)
+def post_comment(
+    ticket_id: UUID,
+    data: TicketCommentCreateRequest,
+    profile: Profile = Depends(get_current_profile),
+    db: Session = Depends(get_db),
+) -> TicketCommentResponse:
+    ticket = ticket_service.get_ticket(db, ticket_id)
+    comment = ticket_service.add_comment(db, profile, ticket, data.body)
+    return _comment_response(comment, profile, profile)
+
+
+@router.delete("/{ticket_id}/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_comment(
+    ticket_id: UUID,
+    comment_id: UUID,
+    profile: Profile = Depends(get_current_profile),
+    db: Session = Depends(get_db),
+) -> None:
+    ticket = ticket_service.get_ticket(db, ticket_id)
+    comment = db.get(TicketComment, comment_id)
+    if comment is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No such comment."
+        )
+    ticket_service.delete_comment(db, profile, ticket, comment)
+
+
 # ------------------------------------------------------- authority actions
 
 
@@ -400,6 +481,25 @@ def assign(
     ticket = ticket_service.get_ticket(db, ticket_id)
     ticket = ticket_service.assign_ticket(
         db, authority, ticket, data.assigned_to_id, data.priority
+    )
+    return _detail(db, ticket, authority, include_candidates=True)
+
+
+@router.patch("/{ticket_id}/priority", response_model=TicketDetail)
+def set_priority(
+    ticket_id: UUID,
+    data: PriorityUpdateRequest,
+    authority: Profile = Depends(require_authority),
+    db: Session = Depends(get_db),
+) -> TicketDetail:
+    """Override priority by hand, or send `priority: null` to un-override.
+
+    An override locks the ticket: neither the score nor the age ladder will
+    touch it again until someone clears it.
+    """
+    ticket = ticket_service.get_ticket(db, ticket_id)
+    ticket = ticket_service.set_priority(
+        db, authority, ticket, data.priority, note=data.note
     )
     return _detail(db, ticket, authority, include_candidates=True)
 

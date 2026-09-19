@@ -100,11 +100,68 @@ const STRINGS = {
   'ticket.medium': ['Medium', 'मध्यम'],
   'ticket.high': ['High', 'उच्च'],
   'ticket.critical': ['Critical', 'अति जरुरी'],
+
+  'priority.title': ['Priority', 'प्राथमिकता'],
+  'priority.autoHint': [
+    'Set automatically from category severity, how many people reported it, and how long it has gone unresolved.',
+    'श्रेणीको गम्भीरता, कति जनाले उजुरी गरे र कति समयदेखि समाधान भएको छैन भन्ने आधारमा स्वतः तय हुन्छ।',
+  ],
+  'priority.lockedHint': [
+    'Set by hand. Automatic scoring and time escalation will not change it until it is cleared.',
+    'हातले तोकिएको। नहटाएसम्म स्वतः गणना र समय वृद्धिले यसलाई परिवर्तन गर्दैन।',
+  ],
+  'priority.manual': ['Set by hand', 'हातले तोकिएको'],
+  'priority.setBy': ['Set by', 'तोक्ने'],
+  'priority.reason': ['Reason (optional)', 'कारण (वैकल्पिक)'],
+  'priority.reasonHint': [
+    'Why this is more or less urgent than the system thinks',
+    'प्रणालीले सोचेभन्दा किन बढी वा कम जरुरी हो',
+  ],
+  'priority.clear': ['Return to automatic', 'स्वतः प्रणालीमा फर्काउनुहोस्'],
+  'priority.escalated': ['Escalated for age', 'लामो समय भएकाले बढाइएको'],
+
+  'transparency.title': ['Public transparency', 'सार्वजनिक पारदर्शिता'],
+  'transparency.hint': [
+    'Aggregate numbers only, no login required.',
+    'लगइन नचाहिने, समग्र तथ्याङ्क मात्र।',
+  ],
+  'transparency.total': ['Total reports', 'कुल उजुरी'],
+  'transparency.open': ['Open', 'खुला'],
+  'transparency.resolved': ['Resolved', 'समाधान भएको'],
+  'transparency.resolvedThisMonth': ['Resolved this month', 'यो महिना समाधान भएको'],
+  'transparency.medianOverall': [
+    'Median time to resolve',
+    'समाधान गर्न लाग्ने औसत समय',
+  ],
+  'transparency.median': ['median', 'औसत'],
+  'transparency.medianHint': [
+    'The middle value across every resolved report, so one very slow or very fast case does not skew the picture.',
+    'सबै समाधान भएका उजुरीहरूको बीचको मान, ताकि एउटा असाधारण ढिलो वा छिटो केसले चित्र बिगार्दैन।',
+  ],
+  'transparency.byWard': ['By ward', 'वडा अनुसार'],
+  'transparency.byCategory': ['By category', 'श्रेणी अनुसार'],
+  'transparency.generatedAt': ['Updated', 'अद्यावधिक'],
+  'transparency.backToLogin': ['Back to login', 'लगइनमा फर्कनुहोस्'],
   'ticket.reporters': ['reporters', 'रिपोर्टकर्ता'],
   'ticket.alsoReportedBy': ['Also reported by', 'अन्य रिपोर्टकर्ता'],
   'ticket.communityVerified': ['Community verified', 'समुदायद्वारा प्रमाणित'],
   'ticket.confirmations': ['confirmations', 'पुष्टि'],
   'ticket.history': ['History', 'इतिहास'],
+
+  'comments.title': ['Discussion', 'छलफल'],
+  'comments.none': [
+    'No comments yet. Ask when this will be fixed.',
+    'अहिलेसम्म कुनै टिप्पणी छैन। यो कहिले समाधान हुन्छ सोध्नुहोस्।',
+  ],
+  'comments.someone': ['Someone', 'कसैले'],
+  'comments.addLabel': ['Add a comment', 'टिप्पणी थप्नुहोस्'],
+  'comments.placeholder': [
+    'When will this be fixed?',
+    'यो कहिले समाधान हुन्छ?',
+  ],
+  'comments.post': ['Post', 'पठाउनुहोस्'],
+  'comments.role.authority': ['Ward office', 'वडा कार्यालय'],
+  'comments.role.admin': ['Admin', 'प्रशासक'],
   'ticket.photos': ['Photos', 'तस्बिरहरू'],
   'ticket.resolution': ['Resolution', 'समाधान'],
   'ticket.reportedBy': ['Reported by', 'रिपोर्ट गर्ने'],
@@ -130,6 +187,15 @@ const STRINGS = {
     'छिमेकीको उजुरी पुष्टि गर्नुहोस् ताकि वडा कार्यालयलाई थाहा होस्।',
   ],
   'nearby.none': ['No open reports nearby.', 'नजिकै कुनै खुला उजुरी छैन।'],
+  'nearby.scopeLabel': ['Which reports to show', 'कुन उजुरी देखाउने'],
+  'nearby.tabNearby': ['Around me', 'मेरो वरिपरि'],
+  'nearby.tabWard': ['My ward', 'मेरो वडा'],
+  'nearby.wardTitle': ['Reports in my ward', 'मेरो वडाका उजुरी'],
+  'nearby.wardHint': [
+    'Everything your neighbours reported at home, wherever you are right now.',
+    'तपाईं जहाँ भए पनि, आफ्नो वडामा छिमेकीले गरेका सबै उजुरी।',
+  ],
+  'nearby.wardNone': ['No reports in your ward yet.', 'तपाईंको वडामा अहिलेसम्म उजुरी छैन।'],
 
   'services.title': ['Civic services', 'नागरिक सेवाहरू'],
   'services.search': ['Search services', 'सेवा खोज्नुहोस्'],
@@ -246,6 +312,7 @@ const STRINGS = {
 
   'common.save': ['Save', 'सुरक्षित'],
   'common.cancel': ['Cancel', 'रद्द'],
+  'common.delete': ['Delete', 'मेट्नुहोस्'],
   'common.loading': ['Loading...', 'लोड हुँदै...'],
   'common.retry': ['Try again', 'फेरि प्रयास'],
   'common.back': ['Back', 'पछाडि'],
@@ -254,6 +321,19 @@ const STRINGS = {
   'common.error': ['Something went wrong.', 'केही गडबड भयो।'],
   'common.viewAll': ['View all', 'सबै हेर्नुहोस्'],
   'common.search': ['Search', 'खोज्नुहोस्'],
+
+  'pwa.installTitle': ['Install Sahayatri', 'सहयात्री इन्स्टल गर्नुहोस्'],
+  'pwa.installBody': [
+    'Add it to your home screen for faster access and offline emergency numbers.',
+    'छिटो पहुँच र अफलाइन आपतकालीन नम्बरका लागि होम स्क्रिनमा थप्नुहोस्।',
+  ],
+  'pwa.install': ['Install', 'इन्स्टल'],
+  'pwa.updateReady': ['A new version is ready.', 'नयाँ संस्करण तयार छ।'],
+  'pwa.reload': ['Reload', 'पुनः लोड'],
+  'pwa.offline': [
+    'You are offline. Emergency numbers still work; new reports need a connection.',
+    'तपाईं अफलाइन हुनुहुन्छ। आपतकालीन नम्बर चल्छ; नयाँ उजुरीलाई इन्टरनेट चाहिन्छ।',
+  ],
 } as const
 
 export type StringKey = keyof typeof STRINGS

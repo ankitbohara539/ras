@@ -179,6 +179,12 @@ export function Login() {
         </div>
         <p className="mt-2 hint">Password: Sahayatri@2025</p>
       </div>
+
+      <p className="mt-4 text-center">
+        <Link to="/transparency" className="font-semibold underline" style={{ color: 'var(--color-brand)' }}>
+          {t('transparency.title')}
+        </Link>
+      </p>
     </AuthShell>
   )
 }

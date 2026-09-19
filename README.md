@@ -10,6 +10,10 @@ report can corroborate that it is real.
 - `backend/` — FastAPI, SQLAlchemy, Alembic, scikit-learn
 - Supabase provides Postgres, Auth and Storage
 
+**[docs/GUIDE.md](docs/GUIDE.md)** is the full walkthrough: roles and scoping,
+how priority is computed, the ticket lifecycle, the matcher pipeline, the
+security model, and a demo script.
+
 ## Quick start
 
 ```powershell
@@ -71,6 +75,52 @@ Everything below is done once, in the Supabase dashboard.
 5. **Email confirmation** — not required. Accounts are created through the
    admin API with `email_confirm: true`, so demo sign-ups work with no inbox.
 
+## Installable app (PWA)
+
+The frontend is an installable Progressive Web App, not a wrapper around a
+native build. On Android/Chrome an install banner appears in the app; on iOS
+use Share -> Add to Home Screen. Once installed it launches standalone with no
+browser chrome, and long-pressing the icon offers **Report**, **SOS** and
+**Services** shortcuts.
+
+```powershell
+cd frontend
+npm run build      # emits dist/sw.js + dist/manifest.webmanifest
+npm run preview    # serves the production build on 4173, /api proxied
+```
+
+The service worker is only fully meaningful in a production build, so test
+install and offline behaviour through `npm run preview`, not `npm run dev`
+(dev mode does register a worker, but the caching differs).
+
+### What is cached, and what deliberately is not
+
+| Request | Strategy | Why |
+| --- | --- | --- |
+| App shell (JS/CSS/HTML/icons) | Precache | Opens instantly, works offline |
+| `/api/services` | StaleWhileRevalidate | **Emergency numbers must survive a dead network** — that is exactly when someone needs a hospital number |
+| `/api/categories`, `/api/municipalities` | StaleWhileRevalidate | Near-static; the report form is unusable without them |
+| Everything else under `/api` | **NetworkOnly** | Tickets, notifications, SOS and alerts are authenticated and per-user. Caching them risks serving one user another user's data from disk, or showing a resolved ticket as still open |
+
+That last row is the important one. It is tempting to cache everything for a
+better offline demo, but a civic app that shows a stale "still open" status on
+a resolved emergency is worse than one that admits it is offline.
+
+The app shows an offline banner when the network drops, and a "new version
+ready" prompt rather than silently swapping code under the user.
+
+### Icons
+
+`frontend/public/*.png` are generated, not designed:
+
+```powershell
+cd frontend
+python scripts/make-icons.py
+```
+
+Replace them with real artwork when there is any. The maskable variant keeps
+its glyph inside the middle 80% so Android launchers can crop it to any shape.
+
 ## Architecture notes
 
 **Supabase is used for auth and storage only.** All application tables are
@@ -90,11 +140,32 @@ indexed bounding box, then exact distances are computed in Python
 GeoAlchemy2 plus geometry types in every migration. pgvector *is* used, for the
 256-dimension description embedding.
 
+**Priority is computed, and a human can overrule it.** Category severity plus
+how many people reported it plus how long it has gone unresolved. An open
+ticket climbs the ladder on its own — low to medium after 7 days, medium to
+high after 3 more — so a minor complaint cannot be ignored forever. An officer
+or admin can set priority by hand, which locks the ticket so neither scoring
+nor escalation overwrites their judgement; sending `priority: null` hands it
+back. See [docs/GUIDE.md](docs/GUIDE.md) §3.
+
 **Notifications are polled, not pushed.** Supabase Realtime authorises through
 RLS, and the tables are deliberately locked. Opening policies just for Realtime
 would mean re-implementing the ward-scoping rules in SQL alongside the Python
 ones — two copies of the authorisation logic, which is how they drift apart.
 The client polls a scoped endpoint every 30 seconds (15 for the SOS queue).
+
+**A ticket's discussion thread is as visible as the ticket itself.** Whoever
+can already view a ticket — every citizen in its municipality, its ward's
+authority, any admin — can read and post on it. `can_view_ticket` is the
+single-row twin of `scope_filter`, checked by both the single-ticket read and
+the comment endpoints, which closed a real gap along the way: `GET
+/tickets/{id}` previously had no scope check at all. See
+[docs/GUIDE.md](docs/GUIDE.md) §6a.
+
+**The public transparency page publishes numbers, never tickets.** No login,
+and no title, description, photo or coordinate ever leaves the aggregate —
+only counts and medians, by category and by ward. See
+[docs/GUIDE.md](docs/GUIDE.md) §6b.
 
 ## The duplicate matcher
 
@@ -179,6 +250,9 @@ default.
 | 4 | SOS & public alerts | `api/emergency.py` |
 | 5 | Accessibility | `lib/i18n.tsx`, `lib/prefs.tsx`, `index.css` |
 | 6 | Authority dashboard | `pages/authority/*` |
+| + | Priority: scoring, age ladder, manual override | `services/ticket_service.py` (`compute_priority`, `escalate_for_age`, `set_priority`) |
+| + | Ticket comments | `services/ticket_service.py` (`add_comment`, `can_view_ticket`), `api/tickets.py` |
+| + | Public transparency page (no login) | `services/stats_service.py`, `api/reference.py` (`/public/stats`), `pages/Transparency.tsx` |
 
 Accessibility is driven by two attributes on `<html>` that redefine CSS tokens,
 so every component picks up large-text and high-contrast without knowing they
@@ -189,7 +263,7 @@ sign-in, because someone who needs large text needs it on the login screen.
 
 ```powershell
 cd backend
-python -m pytest        # 34 tests
+python -m pytest        # 62 tests
 
 cd frontend
 npm run lint

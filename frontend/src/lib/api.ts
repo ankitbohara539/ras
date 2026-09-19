@@ -9,10 +9,12 @@ import type {
   NotificationList,
   Profile,
   ProfileList,
+  PublicStats,
   ServiceType,
   SosCreateResponse,
   SosRequest,
   SosStatus,
+  TicketCommentListResponse,
   TicketCreateResponse,
   TicketDetail,
   TicketListResponse,
@@ -225,11 +227,32 @@ export const api = {
       body: { parent_ticket_id, note },
     }),
 
+  // priority === null hands the ticket back to automatic scoring.
+  setPriority: (id: string, priority: TicketPriority | null, note?: string) =>
+    request<TicketDetail>(`/tickets/${id}/priority`, {
+      method: 'PATCH',
+      body: { priority, note },
+    }),
+
   reassignWard: (id: string, ward_id: string) =>
     request<TicketDetail>(`/tickets/${id}/ward`, {
       method: 'PATCH',
       body: { ward_id },
     }),
+
+  // Visible to anyone who can already view the ticket -- same audience as
+  // the ticket itself, so no separate permission model to reason about.
+  comments: (ticketId: string) =>
+    request<TicketCommentListResponse>(`/tickets/${ticketId}/comments?limit=200`),
+
+  postComment: (ticketId: string, body: string) =>
+    request<TicketCommentListResponse['items'][number]>(`/tickets/${ticketId}/comments`, {
+      method: 'POST',
+      body: { body },
+    }),
+
+  deleteComment: (ticketId: string, commentId: string) =>
+    request<void>(`/tickets/${ticketId}/comments/${commentId}`, { method: 'DELETE' }),
 
   splitTicket: (id: string) =>
     request<TicketDetail>(`/tickets/${id}/split`, { method: 'POST' }),
@@ -285,4 +308,8 @@ export const api = {
       method: 'POST',
       body: { reason },
     }),
+
+  // -- public transparency page (no login) ----------------------------
+  publicStats: (municipality_code?: string) =>
+    request<PublicStats>(`/public/stats${query({ municipality_code })}`, { auth: false }),
 }

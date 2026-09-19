@@ -13,10 +13,12 @@ from app.models.profile import Profile
 from app.schema.admin import (
     AdminProfileUpdateRequest,
     ApprovalRequest,
+    EscalationSweepResponse,
     ProfileListResponse,
     RejectionRequest,
 )
 from app.schema.auth import ProfileResponse
+from app.services import ticket_service
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -212,3 +214,17 @@ def update_profile(
 
     db.flush()
     return ProfileResponse.model_validate(profile)
+
+
+@router.post("/escalations/run", response_model=EscalationSweepResponse)
+def run_escalations(
+    admin: Profile = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> EscalationSweepResponse:
+    """Force the age-escalation sweep now, ignoring the throttle.
+
+    The sweep also runs on its own whenever a ticket list is loaded; this is
+    for demonstrating it on command rather than waiting for the interval.
+    """
+    moved = ticket_service.sweep_escalations(db, force=True)
+    return EscalationSweepResponse(escalated=moved)

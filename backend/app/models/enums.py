@@ -95,5 +95,6 @@ class NotificationType(StrEnum):
     TICKET_MERGED = "ticket_merged"
     TICKET_RESOLVED = "ticket_resolved"
     TICKET_CORROBORATED = "ticket_corroborated"
+    TICKET_COMMENTED = "ticket_commented"
     ALERT_PUBLISHED = "alert_published"
     ACCOUNT_APPROVED = "account_approved"

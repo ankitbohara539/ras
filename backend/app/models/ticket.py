@@ -93,6 +93,20 @@ class Ticket(UUIDPrimaryKey, Timestamped, Base):
         index=True,
     )
 
+    # An officer or admin who sets priority by hand takes it off automation:
+    # scoring and age escalation both stop touching it. Someone standing in
+    # front of the problem knows things the formula does not, and having their
+    # judgement silently overwritten by the next corroboration is worse than
+    # having no override at all. Clearing the lock hands it back.
+    priority_locked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    priority_set_by_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("profiles.id", ondelete="SET NULL"),
+    )
+    priority_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    priority_note: Mapped[str | None] = mapped_column(Text)
+
     # Denormalised counters, maintained by the service layer.
     child_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     corroboration_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -244,6 +258,31 @@ class DuplicateCandidate(UUIDPrimaryKey, Timestamped, Base):
         ForeignKey("profiles.id", ondelete="SET NULL"),
     )
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class TicketComment(UUIDPrimaryKey, Timestamped, Base):
+    """A message on a ticket's discussion thread.
+
+    Visibility mirrors the ticket itself: whoever can see the ticket (every
+    citizen in its municipality, its ward's authority, any admin) can read
+    and post here. That is deliberate -- "when will this be fixed?" asked in
+    the open, where a neighbour and the ward office both see it, is the point;
+    a private support-ticket thread would not put the same pressure on anyone.
+    """
+
+    __tablename__ = "ticket_comments"
+
+    ticket_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tickets.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    author_id: Mapped[UUID] = mapped_column(
+        ForeignKey("profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    body: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class TicketStatusHistory(UUIDPrimaryKey, Timestamped, Base):
