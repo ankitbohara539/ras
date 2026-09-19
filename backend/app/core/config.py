@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     app_name: str = "Sahayatri API"
     app_env: str = "development"
     api_prefix: str = "/api"
-    frontend_url: str = "http://localhost:5173"
+    frontend_url: str = "https://sahayatri-community.vercel.app"
 
     database_url: str | None = None
 
