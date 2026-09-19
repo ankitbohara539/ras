@@ -66,6 +66,36 @@ class Settings(BaseSettings):
     openrouteservice_url: str = "https://api.openrouteservice.org"
     openrouteservice_timeout_s: float = 10.0
 
+    # Dashboard "briefing" button: an AI-written line summarising your own
+    # reports and your ward (citizens), or your ward's open-report load and
+    # queues (officers), from our own model rather than a third-party AI
+    # product -- an open-weight instruct model hosted on Hugging Face's
+    # router (router.huggingface.co, OpenAI-compatible), not tied to any one
+    # provider. Free access token from huggingface.co/settings/tokens.
+    #
+    # Hugging Face's free monthly credit ($0.10) is enough to try this out,
+    # not to run it for real traffic -- but specific model+provider pairings
+    # are priced at $0 and shift over time (check
+    # huggingface.co/docs/inference-providers/pricing). HUGGINGFACE_MODEL is
+    # swappable for exactly that reason: point it at whichever pairing is
+    # free right now without touching code.
+    #
+    # Empty = the button still works, with a templated line built from the
+    # same numbers instead of AI prose -- see app.services.summary_service.
+    huggingface_api_key: str | None = None
+    # ":novita" pins the inference provider. Qwen3 is a reasoning model; its
+    # hidden "thinking" is switched off per request (see app.core.huggingface)
+    # so the whole token budget goes to the visible answer.
+    huggingface_model: str = "Qwen/Qwen3.8-27B:novita"
+    huggingface_api_url: str = "https://router.huggingface.co/v1"
+    huggingface_timeout_s: float = 20.0
+    # How long a generated briefing is reused before the next open refreshes
+    # it, and the minimum gap between two manual "Regenerate" taps. Both
+    # exist to protect a free/shared inference budget, the same way the
+    # comment/OSM/Nominatim limits elsewhere in this file do.
+    dashboard_summary_ttl_s: float = 600.0
+    dashboard_summary_regenerate_cooldown_s: float = 60.0
+
     # The public transparency page has no login, so it shows one municipality
     # rather than exposing every seeded municipality to an anonymous visitor.
     # A picker across municipalities is a real feature; this is the demo shape.

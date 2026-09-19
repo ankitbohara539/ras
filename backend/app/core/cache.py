@@ -46,10 +46,38 @@ class TTLCache:
             self._items[key] = (now + ttl_s, value)
         return value
 
+    def peek(self, key: str) -> object | None:
+        """The live value for `key`, or None -- never loads anything."""
+        with self._lock:
+            hit = self._items.get(key)
+            if hit is not None and hit[0] > time.monotonic():
+                return hit[1]
+            return None
+
+    def set(self, key: str, value: object, ttl_s: float) -> None:
+        with self._lock:
+            self._items[key] = (time.monotonic() + ttl_s, value)
+
     def invalidate(self, prefix: str = "") -> None:
         with self._lock:
             for key in [k for k in self._items if k.startswith(prefix)]:
                 del self._items[key]
+
+    def seen_recently(self, key: str, ttl_s: float) -> bool:
+        """Mark `key` as seen for the next `ttl_s`; True if it already was.
+
+        A rate-limit gate, not a value cache: the first call within a window
+        claims it and returns False ("go ahead"), every call after that
+        within the same window returns True ("wait"). Used to keep one
+        person's repeated clicks from burning a whole shared API quota.
+        """
+        now = time.monotonic()
+        with self._lock:
+            hit = self._items.get(key)
+            if hit is not None and hit[0] > now:
+                return True
+            self._items[key] = (now + ttl_s, None)
+            return False
 
 
 cache = TTLCache()
