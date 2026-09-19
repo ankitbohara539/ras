@@ -120,6 +120,38 @@ CATEGORY_SEEDS: list[dict] = [
         "dedupe_window_days": 21,
         "sort_order": 110,
     },
+    # Hazards to people moving around, not just things to repair -- these
+    # feed the hazard map and the safer-route planner.
+    {
+        "key": "road_blocked",
+        "name_en": "Blocked Road (debris, landslide, works)",
+        "name_ne": "अवरुद्ध सडक (मलबा, पहिरो, निर्माण)",
+        "icon": "block",
+        "base_severity": 0.75,
+        "match_radius_m": 80,
+        "dedupe_window_days": 14,
+        "sort_order": 120,
+    },
+    {
+        "key": "footpath_damage",
+        "name_en": "Damaged Footpath",
+        "name_ne": "बिग्रिएको फुटपाथ",
+        "icon": "footpath",
+        "base_severity": 0.50,
+        "match_radius_m": 50,
+        "dedupe_window_days": 60,
+        "sort_order": 130,
+    },
+    {
+        "key": "accessibility_barrier",
+        "name_en": "Wheelchair Barrier (no ramp, steps, blocked path)",
+        "name_ne": "ह्वीलचेयर अवरोध (र्‍याम्प छैन, खुड्किला, बाटो बन्द)",
+        "icon": "wheelchair",
+        "base_severity": 0.55,
+        "match_radius_m": 40,
+        "dedupe_window_days": 90,
+        "sort_order": 140,
+    },
     {
         "key": "other",
         "name_en": "Other",

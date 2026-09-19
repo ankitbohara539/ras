@@ -11,11 +11,23 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.supabase import get_supabase, new_auth_client
+from app.core.config import get_settings
+from app.core.supabase import new_auth_client
 from app.models.enums import AccountStatus, UserRole
 from app.models.geography import Ward
 from app.models.profile import Profile
 from app.schema.auth import LoginRequest, RegisterRequest
+
+
+# The login error the frontend matches on to show "resend verification email".
+EMAIL_NOT_VERIFIED = "Please verify your email first. Check your inbox for the link we sent."
+
+
+def _verify_redirect() -> str:
+    """Where the link in the verification email lands: the login page, which
+    then says "email verified, sign in". Must be listed under Supabase ->
+    Authentication -> URL Configuration -> Redirect URLs."""
+    return f"{get_settings().frontend_url.rstrip('/')}/login?verified=1"
 
 
 def _supabase_error(exc: Exception, fallback: str) -> HTTPException:
@@ -25,7 +37,20 @@ def _supabase_error(exc: Exception, fallback: str) -> HTTPException:
     """
     message = getattr(exc, "message", None) or str(exc)
     lowered = message.lower()
+    code = str(getattr(exc, "code", "") or "").lower()
 
+    if code == "email_not_confirmed" or "email not confirmed" in lowered:
+        # 403 with a stable detail the app recognises, so it can offer to
+        # resend the verification email instead of just showing an error.
+        return HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=EMAIL_NOT_VERIFIED,
+        )
+    if code in {"over_email_send_rate_limit", "over_request_rate_limit"} or "rate limit" in lowered:
+        return HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many emails were sent just now. Wait a few minutes and try again.",
+        )
     if "already registered" in lowered or "already been registered" in lowered:
         return HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -64,8 +89,17 @@ def _resolve_scope(
     return ward.municipality_id, ward.id
 
 
-def register_user(db: Session, data: RegisterRequest) -> tuple[Profile, bool]:
-    """Create an auth user plus its profile. Returns (profile, needs_approval)."""
+def register_user(db: Session, data: RegisterRequest) -> tuple[Profile, bool, bool]:
+    """Create an auth user plus its profile.
+
+    Returns (profile, needs_approval, needs_verification).
+
+    Goes through Supabase's ordinary sign-up so its "Confirm email" setting
+    applies: with it on, Supabase emails a verification link and refuses to
+    sign the user in until it is clicked; with it off, the account works at
+    once. (The previous admin.create_user call marked every email verified
+    on the spot, which silently bypassed that setting.)
+    """
     if data.requested_role is UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -82,16 +116,18 @@ def register_user(db: Session, data: RegisterRequest) -> tuple[Profile, bool]:
 
     municipality_id, ward_id = _resolve_scope(db, data)
 
-    supabase = get_supabase()
+    # A throwaway client: with confirmation off, sign_up returns a session
+    # and stores it on the client, like sign-in does.
+    supabase = new_auth_client()
     try:
-        # admin.create_user rather than sign_up: it confirms the email inline,
-        # so demo accounts work immediately without an inbox round-trip.
-        result = supabase.auth.admin.create_user(
+        result = supabase.auth.sign_up(
             {
                 "email": data.email,
                 "password": data.password,
-                "email_confirm": True,
-                "user_metadata": {"full_name": data.full_name},
+                "options": {
+                    "data": {"full_name": data.full_name},
+                    "email_redirect_to": _verify_redirect(),
+                },
             }
         )
     except Exception as exc:
@@ -102,6 +138,17 @@ def register_user(db: Session, data: RegisterRequest) -> tuple[Profile, bool]:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Supabase did not return a user.",
         )
+
+    # With confirmation on, signing up an address that already exists does
+    # not error -- Supabase returns a stand-in user with no identities, so as
+    # not to reveal which emails are registered. Our profile table knows.
+    if not result.user.identities or db.get(Profile, UUID(str(result.user.id))):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account with this email already exists.",
+        )
+
+    needs_verification = result.user.email_confirmed_at is None
 
     profile = Profile(
         id=UUID(str(result.user.id)),
@@ -119,7 +166,29 @@ def register_user(db: Session, data: RegisterRequest) -> tuple[Profile, bool]:
     db.add(profile)
     db.flush()
 
-    return profile, needs_approval
+    return profile, needs_approval, needs_verification
+
+
+def resend_verification(email: str) -> None:
+    """Send the sign-up verification email again.
+
+    Deliberately silent about whether the address exists or is already
+    verified -- the endpoint answers the same either way -- so it cannot be
+    used to find out who has an account. Rate limits are the one error worth
+    passing on, because the user can act on it.
+    """
+    try:
+        new_auth_client().auth.resend(
+            {
+                "type": "signup",
+                "email": email,
+                "options": {"email_redirect_to": _verify_redirect()},
+            }
+        )
+    except Exception as exc:
+        error = _supabase_error(exc, "Could not send the email")
+        if error.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+            raise error from exc
 
 
 def login_user(db: Session, data: LoginRequest) -> tuple[object, Profile]:

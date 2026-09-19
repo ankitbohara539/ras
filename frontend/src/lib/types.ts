@@ -118,6 +118,8 @@ export type TicketSummary = {
   corroboration_count: number
   dispute_count: number
   community_verified: boolean
+  // Distinct citizens who commented that this is urgent; raises priority.
+  urgent_commenter_count: number
   // True when a human fixed the priority; automation leaves it alone.
   priority_locked: boolean
   created_at: string
@@ -171,6 +173,9 @@ export type TicketDetail = TicketSummary & {
 export type TicketCreateResponse = {
   ticket: TicketDetail
   possible_duplicates: DuplicateCandidate[]
+  // Set when the match was strong enough (>= 80%) to merge on the spot.
+  auto_merged_into: TicketSummary | null
+  auto_merge_score: number | null
 }
 
 export type TicketListResponse = { items: TicketSummary[]; total: number }
@@ -183,6 +188,8 @@ export type TicketComment = {
   author_role: 'citizen' | 'authority' | 'admin' | null
   body: string
   created_at: string
+  // Presses for a faster fix; counts toward the ticket's priority.
+  is_urgent: boolean
   is_mine: boolean
 }
 
@@ -290,3 +297,100 @@ export type NotificationList = { items: Notification[]; unread: number }
 export type ProfileList = { items: Profile[]; total: number }
 
 export type Coords = { latitude: number; longitude: number }
+
+export type ReverseGeocode = Coords & {
+  place_name: string | null
+  display_name: string | null
+  // The ward a report at this point goes to (OSM's real ward when known).
+  ward: Ward | null
+}
+
+export type CivicCategory =
+  | 'littering'
+  | 'dumping_waste'
+  | 'burning_waste'
+  | 'spitting'
+  | 'public_urination'
+  | 'smoking_in_public'
+  | 'noise'
+  | 'illegal_parking'
+  | 'footpath_encroachment'
+  | 'vandalism'
+  | 'pet_waste'
+  | 'other'
+
+export type CivicStatus = 'submitted' | 'under_review' | 'action_taken' | 'dismissed'
+
+export type CivicComplaint = {
+  id: string
+  public_code: string
+  category: CivicCategory
+  description: string
+  latitude: number
+  longitude: number
+  address_text: string | null
+  ward_id: string
+  ward_number: number | null
+  ward_name: string | null
+  occurred_at: string
+  status: CivicStatus
+  action_note: string | null
+  reviewed_at: string | null
+  created_at: string
+  photos: { id: string; url: string | null }[]
+  // Only for the office handling it.
+  reporter_name: string | null
+  reporter_phone: string | null
+}
+
+export type CivicComplaintList = {
+  items: CivicComplaint[]
+  total: number
+  counts: Partial<Record<CivicStatus, number>>
+}
+
+export type TravelMode = 'walk' | 'wheelchair' | 'drive'
+
+export type Hazard = {
+  id: string
+  source: 'ticket' | 'alert'
+  kind: string
+  title: string
+  severity: 'low' | 'medium' | 'high'
+  latitude: number
+  longitude: number
+  radius_m: number
+  modes: TravelMode[]
+  night_only: boolean
+  active_now: boolean
+  avoid: boolean
+  approximate: boolean
+  reported_at: string | null
+  reports: number
+  confirmations: number
+  ticket_id: string | null
+  alert_id: string | null
+  category_key: string | null
+}
+
+export type RouteOut = {
+  line: [number, number][]
+  distance_m: number
+  duration_s: number
+  hazard_ids: string[]
+  risk: number
+}
+
+export type RoutePlan = {
+  mode: TravelMode
+  profile_used: TravelMode
+  night: boolean
+  fastest: RouteOut
+  safer: RouteOut | null
+  recommended: 'fastest' | 'safer'
+  hazards: Hazard[]
+  notes: string[]
+  disclaimer: string
+}
+
+export type PlaceResult = Coords & { name: string; display_name: string }

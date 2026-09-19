@@ -58,6 +58,8 @@ class TicketSummary(BaseModel):
     corroboration_count: int
     dispute_count: int
     community_verified: bool
+    # Distinct citizens who commented that this is urgent; raises priority.
+    urgent_commenter_count: int = 0
     # True when a human fixed the priority, so neither scoring nor the age
     # ladder will move it. Shown as a lock on the badge.
     priority_locked: bool = False
@@ -69,7 +71,7 @@ class TicketSummary(BaseModel):
 
 
 class DuplicateCandidateResponse(BaseModel):
-    """A merge suggestion. The authority acts on this; the model never does."""
+    """A merge suggestion. Below the auto-merge score an authority decides."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -122,9 +124,12 @@ class TicketDetail(TicketSummary):
 
 class TicketCreateResponse(BaseModel):
     ticket: TicketDetail
-    # Shown to the citizen as "this may already be reported" -- informational,
-    # since merging is the authority's decision.
+    # Shown to the citizen as "this may already be reported".
     possible_duplicates: list[DuplicateCandidateResponse] = []
+    # Set when the match was strong enough (>= dedupe_auto_merge_score) that
+    # the report was merged straight away: this is the ticket it now follows.
+    auto_merged_into: TicketSummary | None = None
+    auto_merge_score: float | None = None
 
 
 class TicketListResponse(BaseModel):
@@ -181,6 +186,8 @@ class TicketCommentResponse(BaseModel):
     author_role: str | None = None
     body: str
     created_at: datetime
+    # The comment presses for a faster fix, so it counts toward priority.
+    is_urgent: bool = False
     # True when the caller wrote this comment, so the UI can offer delete.
     is_mine: bool = False
 

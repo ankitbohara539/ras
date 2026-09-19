@@ -6,6 +6,7 @@ Alembic autogenerate walks. Any new model file must be imported here.
 
 from app.db.base import Base
 from app.models.category import Category
+from app.models.civic import CivicComplaint, CivicComplaintPhoto
 from app.models.emergency import Alert, CivicService, SosRequest
 from app.models.enums import (
     AccountStatus,
@@ -43,6 +44,8 @@ __all__ = [
     "Base",
     "CandidateStatus",
     "Category",
+    "CivicComplaint",
+    "CivicComplaintPhoto",
     "CivicService",
     "DuplicateCandidate",
     "EmergencyType",

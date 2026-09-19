@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   Button,
@@ -11,9 +11,17 @@ import {
   StatusBadge,
   SuccessNote,
 } from '../components/ui'
+import { LocationMap } from '../components/LocationMap'
 import { api } from '../lib/api'
+import { useQuery } from '../lib/cache'
 import { useAuth } from '../lib/auth'
-import { formatDate, formatDistance, useGeolocation } from '../lib/geo'
+import {
+  formatCoords,
+  formatDate,
+  formatDistance,
+  mapsLink,
+  useGeolocation,
+} from '../lib/geo'
 import { useI18n } from '../lib/i18n'
 import type { TicketComment, TicketDetail as Ticket, TicketStatus, Ward } from '../lib/types'
 
@@ -56,8 +64,6 @@ export function TicketDetailPage() {
   const navigate = useNavigate()
   const { state: geo, locate } = useGeolocation()
 
-  const [ticket, setTicket] = useState<Ticket | null>(null)
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -66,40 +72,32 @@ export function TicketDetailPage() {
   const [priorityNote, setPriorityNote] = useState('')
   const [showReassign, setShowReassign] = useState(false)
 
-  const [comments, setComments] = useState<TicketComment[]>([])
   const [commentDraft, setCommentDraft] = useState('')
   const [commentBusy, setCommentBusy] = useState(false)
   const [commentError, setCommentError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    if (!id) return
-    try {
-      setTicket(await api.ticket(id))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('common.error'))
-    } finally {
-      setLoading(false)
-    }
-  }, [id, t])
+  // Through the shared cache: a ticket opened from a list (prefetched on
+  // hover or touch) paints at once and is refreshed straight away. Keyed per
+  // viewer because an officer's copy carries duplicate suggestions a
+  // citizen's does not.
+  const ticketQuery = useQuery(id && profile ? `ticket:${id}:${profile.id}` : null, () =>
+    api.ticket(id!),
+  )
+  const commentsQuery = useQuery(id && profile ? `comments:${id}:${profile.id}` : null, () =>
+    api.comments(id!),
+  )
+  const ticket: Ticket | null = ticketQuery.data ?? null
+  const loading = ticketQuery.loading
+  // The ticket load already surfaces a permission error; a failed thread
+  // just shows as empty rather than a second error banner.
+  const comments: TicketComment[] = commentsQuery.data?.items ?? []
+  const loadError =
+    ticketQuery.error instanceof Error ? ticketQuery.error.message : null
 
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  const loadComments = useCallback(async () => {
-    if (!id) return
-    try {
-      const result = await api.comments(id)
-      setComments(result.items)
-    } catch {
-      // The ticket load already surfaces a permission error; failing quietly
-      // here just means an empty thread instead of a second error banner.
-    }
-  }, [id])
-
-  useEffect(() => {
-    void loadComments()
-  }, [loadComments])
+  // After an action: wait for the fresh copy before clearing the busy state.
+  // (The write itself already invalidated the cache.)
+  const load = ticketQuery.refetch
+  const loadComments = commentsQuery.refetch
 
   const submitComment = async () => {
     if (!id || !commentDraft.trim()) return
@@ -108,7 +106,8 @@ export function TicketDetailPage() {
     try {
       await api.postComment(id, commentDraft.trim())
       setCommentDraft('')
-      await loadComments()
+      // An urgent comment can raise the priority; show it without a refresh.
+      await Promise.all([loadComments(), load()])
     } catch (err) {
       setCommentError(err instanceof Error ? err.message : t('common.error'))
     } finally {
@@ -121,7 +120,7 @@ export function TicketDetailPage() {
     setCommentBusy(true)
     try {
       await api.deleteComment(id, commentId)
-      await loadComments()
+      await Promise.all([loadComments(), load()])
     } catch (err) {
       setCommentError(err instanceof Error ? err.message : t('common.error'))
     } finally {
@@ -153,7 +152,7 @@ export function TicketDetailPage() {
   }
 
   if (loading) return <Spinner />
-  if (!ticket) return <ErrorNote message={error ?? t('common.error')} />
+  if (!ticket) return <ErrorNote message={error ?? loadError ?? t('common.error')} />
 
   const isMine = ticket.reporter_id === profile?.id
   const reporters = ticket.child_count + 1
@@ -222,10 +221,23 @@ export function TicketDetailPage() {
             <dt className="hint">{t('ticket.reportedBy')}</dt>
             <dd className="font-medium">{ticket.reporter_name ?? '—'}</dd>
           </div>
-          <div>
+          <div className="sm:col-span-2">
             <dt className="hint">{t('report.location')}</dt>
-            <dd className="font-medium">
-              {ticket.address_text ?? `${ticket.latitude.toFixed(5)}, ${ticket.longitude.toFixed(5)}`}
+            {ticket.address_text && (
+              <dd className="font-medium">📍 {ticket.address_text}</dd>
+            )}
+            <dd className="font-mono" style={{ fontSize: 'var(--step-xs)' }}>
+              {formatCoords(ticket.latitude, ticket.longitude)}
+              {' · '}
+              <a
+                href={mapsLink(ticket.latitude, ticket.longitude)}
+                target="_blank"
+                rel="noreferrer"
+                className="underline"
+                style={{ color: 'var(--color-brand)' }}
+              >
+                {t('ticket.openInMaps')} ↗
+              </a>
             </dd>
           </div>
           <div>
@@ -250,7 +262,22 @@ export function TicketDetailPage() {
               <dd className="font-medium">✓ {ticket.corroboration_count}</dd>
             </div>
           )}
+          {ticket.urgent_commenter_count > 0 && (
+            <div>
+              <dt className="hint">{t('comments.urgent')}</dt>
+              <dd className="font-medium" style={{ color: 'var(--color-warn)' }}>
+                ⚡ {ticket.urgent_commenter_count} {t('comments.urgentCount')}
+              </dd>
+            </div>
+          )}
         </dl>
+
+        <div className="mt-4">
+          <LocationMap
+            coords={{ latitude: ticket.latitude, longitude: ticket.longitude }}
+            height={200}
+          />
+        </div>
 
         {ticket.photos.length > 0 && (
           <div className="mt-4">
@@ -361,7 +388,8 @@ export function TicketDetailPage() {
         </SuccessNote>
       )}
 
-      {/* Authority: the merge review. Suggestions only, never auto-applied. */}
+      {/* Authority: the merge review. Matches of 80% or more were already
+          merged on submission; what is left here is for a human to judge. */}
       {isAuthority && ticket.duplicate_candidates.length > 0 && (
         <Card>
           <h2 className="font-bold" style={{ fontSize: 'var(--step-md)' }}>
@@ -715,6 +743,21 @@ export function TicketDetailPage() {
                         {t(`comments.role.${comment.author_role}` as never)}
                       </span>
                     )}
+                    {comment.is_urgent && comment.author_role === 'citizen' && (
+                      <span
+                        className="chip ml-2"
+                        title={t('comments.urgentHint')}
+                        style={{
+                          fontSize: 'var(--step-xs)',
+                          padding: '0.05rem 0.5rem',
+                          background: 'var(--color-warn-soft)',
+                          color: 'var(--color-warn)',
+                          borderColor: 'var(--color-warn)',
+                        }}
+                      >
+                        ⚡ {t('comments.urgent')}
+                      </span>
+                    )}
                   </div>
                   {(comment.is_mine || isAuthority) && (
                     <button
@@ -738,6 +781,7 @@ export function TicketDetailPage() {
         )}
 
         <div className="mt-4">
+          <p className="hint mb-2">{t('comments.urgentHint')}</p>
           <Field label={t('comments.addLabel')}>
             <textarea
               className="field"

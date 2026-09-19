@@ -5,6 +5,11 @@ every access rule lives here. Nothing else in the app should decide who may
 see what.
 """
 
+import base64
+import hashlib
+import json
+import threading
+import time
 from collections.abc import Callable
 from uuid import UUID
 
@@ -26,6 +31,63 @@ CREDENTIALS_ERROR = HTTPException(
 )
 
 
+# Asking Supabase "who is this token?" is a network round trip (~250ms from
+# here) on every single request, and a page makes several. A token Supabase
+# has vouched for is remembered for a short while -- never past the token's
+# own expiry -- keyed by a hash so raw tokens are not held in memory.
+# The cost: a revoked session keeps working for at most this long.
+_TOKEN_CACHE_SECONDS = 60
+_token_cache: dict[str, tuple[UUID, float]] = {}
+_token_lock = threading.Lock()
+
+
+def _token_expiry(token: str) -> float | None:
+    """The `exp` claim, read without verifying -- only used to cap the cache.
+
+    Verification is Supabase's job and has already happened by the time this
+    matters; a forged exp can only make the entry expire sooner, because the
+    cache also never outlives _TOKEN_CACHE_SECONDS.
+    """
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        exp = json.loads(base64.urlsafe_b64decode(payload)).get("exp")
+        return float(exp) if exp is not None else None
+    except (IndexError, ValueError, TypeError):
+        return None
+
+
+def _user_id_for(token: str) -> UUID:
+    key = hashlib.sha256(token.encode()).hexdigest()
+    now = time.time()
+
+    with _token_lock:
+        hit = _token_cache.get(key)
+        if hit is not None and hit[1] > now:
+            return hit[0]
+
+    try:
+        user_response = get_supabase().auth.get_user(token)
+    except Exception as exc:
+        raise CREDENTIALS_ERROR from exc
+
+    user = getattr(user_response, "user", None)
+    if user is None:
+        raise CREDENTIALS_ERROR
+
+    user_id = UUID(str(user.id))
+    expires = now + _TOKEN_CACHE_SECONDS
+    token_exp = _token_expiry(token)
+    if token_exp is not None:
+        expires = min(expires, token_exp)
+
+    with _token_lock:
+        if len(_token_cache) > 5000:
+            _token_cache.clear()
+        _token_cache[key] = (user_id, expires)
+    return user_id
+
+
 def get_current_profile(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db),
@@ -34,16 +96,7 @@ def get_current_profile(
 
     Supabase verifies the token; the profile row supplies role and scope.
     """
-    try:
-        user_response = get_supabase().auth.get_user(credentials.credentials)
-    except Exception as exc:
-        raise CREDENTIALS_ERROR from exc
-
-    user = getattr(user_response, "user", None)
-    if user is None:
-        raise CREDENTIALS_ERROR
-
-    profile = db.get(Profile, UUID(str(user.id)))
+    profile = db.get(Profile, _user_id_for(credentials.credentials))
     if profile is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

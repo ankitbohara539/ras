@@ -45,6 +45,16 @@ class RegisterResponse(BaseModel):
     profile: ProfileResponse
     # Pending authority accounts get no session until an admin approves them.
     requires_approval: bool
+    # A verification link was emailed; sign-in fails until it is clicked.
+    requires_verification: bool = False
+    message: str
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
+class MessageResponse(BaseModel):
     message: str
 
 

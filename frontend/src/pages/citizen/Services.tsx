@@ -17,7 +17,7 @@ const FILTERS: (ServiceType | 'all')[] = [
 
 export function Services() {
   const { t, pick } = useI18n()
-  const { state: geo, locate } = useGeolocation()
+  const { state: geo, locate } = useGeolocation({ refine: false })
 
   const [services, setServices] = useState<CivicService[]>([])
   const [filter, setFilter] = useState<ServiceType | 'all'>('all')

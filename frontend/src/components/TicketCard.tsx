@@ -1,4 +1,7 @@
 import { Link } from 'react-router-dom'
+import { api } from '../lib/api'
+import { useAuth } from '../lib/auth'
+import { prefetch } from '../lib/cache'
 import { formatDistance, relativeTime } from '../lib/geo'
 import { useI18n } from '../lib/i18n'
 import type { TicketSummary } from '../lib/types'
@@ -14,12 +17,25 @@ export function TicketCard({
   showPriority?: boolean
 }) {
   const { t } = useI18n()
+  const { profile } = useAuth()
   const reporters = ticket.child_count + 1
+
+  // Start loading the ticket the moment the user shows intent -- pointer
+  // over it, keyboard focus, or a finger touching down -- so by the time the
+  // tap completes the page usually has its data. Same keys as TicketDetail.
+  const warm = () => {
+    if (!profile) return
+    prefetch(`ticket:${ticket.id}:${profile.id}`, () => api.ticket(ticket.id))
+    prefetch(`comments:${ticket.id}:${profile.id}`, () => api.comments(ticket.id))
+  }
 
   return (
     <Link
       to={`/tickets/${ticket.id}`}
       className="card block p-4 transition hover:border-[var(--color-brand)]"
+      onMouseEnter={warm}
+      onFocus={warm}
+      onTouchStart={warm}
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono font-semibold" style={{ fontSize: 'var(--step-sm)' }}>

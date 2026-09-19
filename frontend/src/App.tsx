@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { Suspense, type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { PwaPrompts } from './components/PwaPrompts'
@@ -6,22 +6,27 @@ import { Spinner } from './components/ui'
 import { AuthProvider, useAuth } from './lib/auth'
 import { I18nProvider } from './lib/i18n'
 import { PrefsProvider } from './lib/prefs'
-import { Approvals } from './pages/admin/Approvals'
 import { AuthorityDashboard } from './pages/authority/Dashboard'
-import { PublishAlert } from './pages/authority/PublishAlert'
-import { ReviewQueue } from './pages/authority/ReviewQueue'
-import { SosQueue } from './pages/authority/SosQueue'
 import { CitizenHome } from './pages/citizen/Home'
-import { MyReports } from './pages/citizen/MyReports'
-import { Nearby } from './pages/citizen/Nearby'
-import { ReportIssue } from './pages/citizen/ReportIssue'
-import { Services } from './pages/citizen/Services'
-import { Sos } from './pages/citizen/Sos'
 import { Login } from './pages/Login'
-import { Notifications } from './pages/Notifications'
 import { Register } from './pages/Register'
-import { TicketDetailPage } from './pages/TicketDetail'
-import { Transparency } from './pages/Transparency'
+import {
+  Approvals,
+  CivicQueue,
+  CivicReport,
+  MyReports,
+  Nearby,
+  Notifications,
+  PublishAlert,
+  ReportIssue,
+  ReviewQueue,
+  SafeRoute,
+  Services,
+  Sos,
+  SosQueue,
+  TicketDetailPage,
+  Transparency,
+} from './routes'
 
 function RequireAuth({
   children,
@@ -86,7 +91,14 @@ export default function App() {
               />
               {/* No auth, no PublicOnly redirect -- this is the one page meant
                   to be shared with someone who never logs in at all. */}
-              <Route path="/transparency" element={<Transparency />} />
+              <Route
+                path="/transparency"
+                element={
+                  <Suspense fallback={<Spinner />}>
+                    <Transparency />
+                  </Suspense>
+                }
+              />
 
               <Route
                 element={
@@ -101,6 +113,8 @@ export default function App() {
                 <Route path="nearby" element={<Nearby />} />
                 <Route path="services" element={<Services />} />
                 <Route path="sos" element={<Sos />} />
+                <Route path="civic" element={<CivicReport />} />
+                <Route path="safe-route" element={<SafeRoute />} />
                 <Route path="notifications" element={<Notifications />} />
                 <Route path="tickets/:id" element={<TicketDetailPage />} />
 
@@ -125,6 +139,14 @@ export default function App() {
                   element={
                     <RequireAuth role="authority">
                       <SosQueue />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="authority/civic"
+                  element={
+                    <RequireAuth role="authority">
+                      <CivicQueue />
                     </RequireAuth>
                   }
                 />

@@ -1,197 +1,157 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import {
-  Button,
-  Card,
-  ErrorNote,
-  Field,
-  PageTitle,
-  StatusBadge,
-} from '../../components/ui'
+import { Button, Card, ErrorNote, PageTitle, StatusBadge } from '../../components/ui'
 import { api } from '../../lib/api'
-import { formatDistance, useGeolocation } from '../../lib/geo'
+import { useQuery } from '../../lib/cache'
+import { formatDistance } from '../../lib/geo'
 import { useI18n } from '../../lib/i18n'
-import type {
-  Category,
-  DuplicateCandidate,
-  TicketDetail,
-  Ward,
-} from '../../lib/types'
+import type { Category, TicketCreateResponse } from '../../lib/types'
+import { EMPTY_DRAFT, ReportDraft, type DraftValue } from './ReportDraft'
 
-const MAX_PHOTOS = 4
+// Enough for "three problems on one street"; more than this in one sitting
+// is better as separate visits than one very long form.
+const MAX_REPORTS = 5
+
+type Slot = { key: number; startAt: DraftValue['coords'] }
 
 export function ReportIssue() {
   const { t, language } = useI18n()
-  const navigate = useNavigate()
-  const { state: geo, locate } = useGeolocation()
-  const fileInput = useRef<HTMLInputElement>(null)
 
-  const [categories, setCategories] = useState<Category[]>([])
-  const [destinationWard, setDestinationWard] = useState<Ward | null>(null)
-  const [categoryId, setCategoryId] = useState('')
-  const [description, setDescription] = useState('')
-  const [address, setAddress] = useState('')
-  const [photos, setPhotos] = useState<File[]>([])
-  const [previews, setPreviews] = useState<string[]>([])
+  // Reference data ("ref:" survives writes): the category list is the same
+  // for everyone and changes only on reseed, so it is reused for 10 minutes.
+  const categoriesQuery = useQuery('ref:categories', () => api.categories(), {
+    freshMs: 10 * 60_000,
+  })
+  const categories: Category[] = categoriesQuery.data ?? []
+  const [slots, setSlots] = useState<Slot[]>([{ key: 0, startAt: null }])
+  // Latest values reported by each draft, by slot key. A ref, not state: the
+  // drafts report on every keystroke and nothing here renders from it.
+  const values = useRef<Record<number, DraftValue>>({})
+  const nextKey = useRef(1)
 
   const [error, setError] = useState<string | null>(null)
+  const [failures, setFailures] = useState<Record<number, string>>({})
   const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<{
-    ticket: TicketDetail
-    duplicates: DuplicateCandidate[]
-  } | null>(null)
+  const [progress, setProgress] = useState(0)
+  const [results, setResults] = useState<TicketCreateResponse[]>([])
+  const [done, setDone] = useState(false)
 
-  useEffect(() => {
-    api.categories().then(setCategories).catch(() => setCategories([]))
-  }, [])
+  const addReport = () => {
+    const last = slots[slots.length - 1]
+    const lastCoords = last ? values.current[last.key]?.coords ?? null : null
+    const key = nextKey.current++
+    setSlots((current) => [...current, { key, startAt: lastCoords }])
+    // Bring the new, empty report into view.
+    window.setTimeout(() => {
+      document.getElementById(`report-${key}`)?.scrollIntoView({ behavior: 'smooth' })
+    }, 50)
+  }
 
-  // Ask for location immediately: it is required, and asking late means the
-  // citizen fills in the whole form and then hits a permission wall.
-  useEffect(() => {
-    locate()
-  }, [locate])
-
-  useEffect(() => {
-    const urls = photos.map((photo) => URL.createObjectURL(photo))
-    setPreviews(urls)
-    return () => urls.forEach((url) => URL.revokeObjectURL(url))
-  }, [photos])
-
-  // Resolve which ward will receive this, and show it before submitting.
-  // Routing is by GPS, not by the ward you registered under, and finding that
-  // out afterwards -- when your report is invisible to your ward office -- is
-  // far too late.
-  useEffect(() => {
-    if (geo.kind !== 'ready') {
-      setDestinationWard(null)
-      return
-    }
-
-    let cancelled = false
-    api
-      .nearestWard(geo.coords)
-      .then((ward) => {
-        if (!cancelled) setDestinationWard(ward)
-      })
-      .catch(() => {
-        if (!cancelled) setDestinationWard(null)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [geo])
-
-  const addPhotos = (files: FileList | null) => {
-    if (!files) return
-    setPhotos((current) => [...current, ...Array.from(files)].slice(0, MAX_PHOTOS))
+  const removeReport = (key: number) => {
+    setSlots((current) => current.filter((slot) => slot.key !== key))
+    delete values.current[key]
+    setFailures((current) => {
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
   }
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setError(null)
+    setFailures({})
 
-    if (geo.kind !== 'ready') {
-      setError(t('report.locationNeeded'))
+    const pending = slots.map((slot) => ({
+      slot,
+      value: values.current[slot.key] ?? EMPTY_DRAFT,
+    }))
+
+    const unlocated = pending.findIndex(({ value }) => value.coords === null)
+    if (unlocated !== -1) {
+      setError(
+        pending.length > 1
+          ? `${t('report.reportN')} ${unlocated + 1}: ${t('report.locationNeeded')}`
+          : t('report.locationNeeded'),
+      )
       return
     }
 
     setBusy(true)
-    try {
-      const response = await api.createTicket(
-        {
-          description,
-          latitude: geo.coords.latitude,
-          longitude: geo.coords.longitude,
-          category_id: categoryId || undefined,
-          address_text: address || undefined,
-          description_lang: language,
-        },
-        photos,
-      )
-      setResult({
-        ticket: response.ticket,
-        duplicates: response.possible_duplicates,
-      })
-      window.scrollTo({ top: 0 })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('common.error'))
-    } finally {
-      setBusy(false)
+    setProgress(0)
+    const created: TicketCreateResponse[] = []
+    const failed: Record<number, string> = {}
+
+    // One at a time, not in parallel: two reports of the same spot sent
+    // together could each miss the other in duplicate matching, and a
+    // failure is easier to pin to the report that caused it.
+    for (const { slot, value } of pending) {
+      try {
+        const response = await api.createTicket(
+          {
+            description: value.description,
+            latitude: value.coords!.latitude,
+            longitude: value.coords!.longitude,
+            category_id: value.categoryId || undefined,
+            address_text: value.address || undefined,
+            description_lang: language,
+          },
+          value.photos,
+        )
+        created.push(response)
+      } catch (err) {
+        failed[slot.key] = err instanceof Error ? err.message : t('common.error')
+      }
+      setProgress((count) => count + 1)
     }
+
+    setBusy(false)
+    setResults((current) => [...current, ...created])
+
+    if (Object.keys(failed).length === 0) {
+      setDone(true)
+      window.scrollTo({ top: 0 })
+      return
+    }
+
+    // Keep only the reports that failed in the form, with their errors, so
+    // nothing already filed gets submitted twice.
+    setSlots((current) => current.filter((slot) => slot.key in failed))
+    setFailures(failed)
+    setError(t('report.someFailed'))
+    window.scrollTo({ top: 0 })
   }
 
-  if (result) {
+  if (done) {
     return (
       <div className="mx-auto max-w-2xl space-y-4">
         <div
           className="card p-5 text-center"
-          style={{
-            background: 'var(--color-good-soft)',
-            borderColor: 'var(--color-good)',
-          }}
+          style={{ background: 'var(--color-good-soft)', borderColor: 'var(--color-good)' }}
         >
           <p aria-hidden="true" style={{ fontSize: '2.5rem' }}>
             ✅
           </p>
-          <h1
-            className="font-bold"
-            style={{ fontSize: 'var(--step-lg)', color: 'var(--color-good)' }}
-          >
-            {t('report.submitted')}
+          <h1 className="font-bold" style={{ fontSize: 'var(--step-lg)', color: 'var(--color-good)' }}>
+            {results.length > 1 ? t('report.submittedMany') : t('report.submitted')}
           </h1>
-          <p className="mt-1 font-mono font-bold" style={{ fontSize: 'var(--step-lg)' }}>
-            {result.ticket.public_code}
-          </p>
-          <div className="mt-2 flex justify-center">
-            <StatusBadge status={result.ticket.status} />
-          </div>
-          {result.ticket.ward_number !== null && (
-            <p className="mt-2 hint">
-              {t('report.goesToWard')}: {t('auth.ward')}{' '}
-              {result.ticket.ward_number}
-              {result.ticket.ward_name ? ` — ${result.ticket.ward_name}` : ''}
-            </p>
-          )}
+          {results.length > 1 && <p className="mt-1 hint">{results.length}</p>}
         </div>
 
-        {result.duplicates.length > 0 && (
-          <Card>
-            <h2 className="font-bold" style={{ fontSize: 'var(--step-md)' }}>
-              {t('report.possibleDuplicates')}
-            </h2>
-            <p className="mt-1 hint">{t('report.duplicateNote')}</p>
-
-            <div className="mt-3 space-y-2">
-              {result.duplicates.map((candidate) => (
-                <div
-                  key={candidate.id}
-                  className="rounded-lg border p-3"
-                  style={{ borderColor: 'var(--color-line)' }}
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono font-semibold">
-                      {candidate.candidate?.public_code}
-                    </span>
-                    {candidate.candidate && (
-                      <StatusBadge status={candidate.candidate.status} />
-                    )}
-                    <span className="ml-auto hint">
-                      {formatDistance(candidate.distance_m)} {t('common.away')}
-                    </span>
-                  </div>
-                  <p className="mt-1" style={{ fontSize: 'var(--step-sm)' }}>
-                    {candidate.candidate?.title}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </Card>
-        )}
+        {results.map((result) => (
+          <ResultCard key={result.ticket.id} result={result} />
+        ))}
 
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => navigate(`/tickets/${result.ticket.id}`)}>
-            View my report
+          <Button
+            onClick={() => {
+              setResults([])
+              setDone(false)
+              values.current = {}
+              setSlots([{ key: nextKey.current++, startAt: null }])
+            }}
+          >
+            ➕ {t('report.reportAnother')}
           </Button>
           <Link to="/" className="btn btn-secondary">
             {t('nav.home')}
@@ -207,173 +167,120 @@ export function ReportIssue() {
 
       {error && <ErrorNote message={error} />}
 
-      <Card>
-        <Field
-          label={t('report.description')}
-          hint={t('report.descriptionHint')}
-          required
-        >
-          <textarea
-            className="field"
-            rows={5}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            required
-            minLength={10}
-            maxLength={4000}
-            placeholder={
-              language === 'ne'
-                ? 'जस्तै: बस स्टप नजिक सडकमा ठूलो खाल्डो छ...'
-                : 'e.g. There is a big pothole on the road near the bus stop...'
-            }
+      {results.length > 0 && (
+        <Card>
+          <p className="font-semibold" style={{ color: 'var(--color-good)' }}>
+            ✅ {t('report.alreadyFiled')}
+          </p>
+          <ul className="mt-1">
+            {results.map((result) => (
+              <li key={result.ticket.id} className="font-mono">
+                {result.ticket.public_code}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {slots.map((slot, index) => (
+        <div key={slot.key} id={`report-${slot.key}`} className="space-y-2">
+          {failures[slot.key] && <ErrorNote message={failures[slot.key]} />}
+          <ReportDraft
+            index={index}
+            total={slots.length}
+            categories={categories}
+            startAt={slot.startAt}
+            onChange={(value) => {
+              values.current[slot.key] = value
+            }}
+            onRemove={slots.length > 1 ? () => removeReport(slot.key) : undefined}
           />
-        </Field>
-
-        <div className="mt-4">
-          <Field label={t('report.category')}>
-            <select
-              className="field"
-              value={categoryId}
-              onChange={(e) => setCategoryId(e.target.value)}
-            >
-              <option value="">{t('report.categoryAuto')}</option>
-              {categories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {language === 'ne' ? category.name_ne : category.name_en}
-                </option>
-              ))}
-            </select>
-          </Field>
         </div>
-      </Card>
+      ))}
 
-      <Card>
-        <p className="label">{t('report.location')}</p>
+      {slots.length < MAX_REPORTS && (
+        <Button type="button" variant="secondary" className="w-full" onClick={addReport} disabled={busy}>
+          ➕ {t('report.addAnother')}
+        </Button>
+      )}
+      <p className="hint">{t('report.addAnotherHint')}</p>
 
-        {geo.kind === 'ready' ? (
-          <div
-            className="flex flex-wrap items-center gap-2 rounded-lg p-3"
-            style={{ background: 'var(--color-good-soft)' }}
-          >
-            <span aria-hidden="true">📍</span>
-            <span className="font-mono" style={{ fontSize: 'var(--step-sm)' }}>
-              {geo.coords.latitude.toFixed(5)}, {geo.coords.longitude.toFixed(5)}
-            </span>
-            {geo.accuracy > 0 && (
-              <span className="hint">±{geo.accuracy}m</span>
-            )}
-            <button
-              type="button"
-              onClick={locate}
-              className="btn btn-ghost ml-auto"
-              style={{ minHeight: 'auto', padding: '0.25rem 0.6rem' }}
-            >
-              {t('common.retry')}
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={locate}
-              disabled={geo.kind === 'locating'}
-              className="w-full"
-            >
-              📍 {geo.kind === 'locating' ? t('report.locating') : t('report.useMyLocation')}
-            </Button>
-            {geo.kind === 'error' && <ErrorNote message={geo.message} />}
-            <p className="hint">{t('report.locationNeeded')}</p>
-          </div>
-        )}
-
-        {destinationWard && (
-          <div
-            className="mt-3 rounded-lg p-3"
-            style={{ background: 'var(--color-brand-soft)' }}
-          >
-            <p className="font-semibold" style={{ fontSize: 'var(--step-sm)' }}>
-              {t('report.goesToWard')}: {t('auth.ward')} {destinationWard.number}
-              {destinationWard.name_en
-                ? ` — ${language === 'ne' ? destinationWard.name_ne : destinationWard.name_en}`
-                : ''}
-            </p>
-            <p className="mt-0.5 hint">{t('report.wardExplainer')}</p>
-          </div>
-        )}
-
-        <div className="mt-4">
-          <Field label={t('report.address')}>
-            <input
-              className="field"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              maxLength={300}
-            />
-          </Field>
-        </div>
-      </Card>
-
-      <Card>
-        <p className="label">{t('report.photos')}</p>
-        <p className="hint">{t('report.photoHint')}</p>
-
-        <input
-          ref={fileInput}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          multiple
-          className="sr-only"
-          onChange={(e) => addPhotos(e.target.files)}
-        />
-
-        <div className="mt-3 flex flex-wrap gap-2">
-          {previews.map((url, index) => (
-            <div key={url} className="relative">
-              <img
-                src={url}
-                alt=""
-                className="h-24 w-24 rounded-lg object-cover"
-                style={{ border: '1px solid var(--color-line)' }}
-              />
-              <button
-                type="button"
-                onClick={() =>
-                  setPhotos((current) => current.filter((_, i) => i !== index))
-                }
-                className="absolute -right-2 -top-2 flex h-7 w-7 items-center justify-center rounded-full text-white"
-                style={{ background: 'var(--color-danger)' }}
-                aria-label={`Remove photo ${index + 1}`}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-
-          {photos.length < MAX_PHOTOS && (
-            <button
-              type="button"
-              onClick={() => fileInput.current?.click()}
-              className="flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed"
-              style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink-soft)' }}
-            >
-              <span aria-hidden="true" style={{ fontSize: '1.5rem' }}>
-                📷
-              </span>
-              <span style={{ fontSize: '0.7rem' }}>{t('report.addPhoto')}</span>
-            </button>
-          )}
-        </div>
-      </Card>
-
-      <Button
-        type="submit"
-        disabled={busy || geo.kind !== 'ready'}
-        className="w-full"
-      >
-        {busy ? t('report.submitting') : t('report.submit')}
+      <Button type="submit" disabled={busy} className="w-full">
+        {busy
+          ? `${t('report.submitting')} ${progress}/${slots.length}`
+          : slots.length > 1
+            ? `${t('report.submitAll')} (${slots.length})`
+            : t('report.submit')}
       </Button>
     </form>
+  )
+}
+
+/** What happened to one submitted report: its code, ward, and any duplicate. */
+function ResultCard({ result }: { result: TicketCreateResponse }) {
+  const { t } = useI18n()
+  const navigate = useNavigate()
+  const { ticket, possible_duplicates: duplicates } = result
+  const mergedInto = result.auto_merged_into
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-mono font-bold" style={{ fontSize: 'var(--step-md)' }}>
+          {ticket.public_code}
+        </span>
+        <StatusBadge status={ticket.status} />
+      </div>
+      <p className="mt-1" style={{ fontSize: 'var(--step-sm)' }}>
+        {ticket.title}
+      </p>
+      {ticket.ward_number !== null && (
+        <p className="mt-1 hint">
+          {t('report.goesToWard')}: {t('auth.ward')} {ticket.ward_number}
+          {ticket.ward_name ? ` — ${ticket.ward_name}` : ''}
+        </p>
+      )}
+
+      {mergedInto && (
+        <div className="mt-3 rounded-lg border p-3" style={{ borderColor: 'var(--color-brand)' }}>
+          <p className="font-semibold">🔗 {t('report.autoMerged')}</p>
+          <p className="hint">{t('report.autoMergedNote')}</p>
+          <p className="mt-1">
+            <span className="font-mono font-semibold">{mergedInto.public_code}</span>{' '}
+            {result.auto_merge_score !== null && (
+              <span className="chip">{Math.round(result.auto_merge_score * 100)}%</span>
+            )}{' '}
+            <span className="hint">
+              👥 {mergedInto.child_count + 1} {t('ticket.reporters')}
+            </span>
+          </p>
+        </div>
+      )}
+
+      {!mergedInto && duplicates.length > 0 && (
+        <div className="mt-3">
+          <p className="font-semibold">{t('report.possibleDuplicates')}</p>
+          <p className="hint">{t('report.duplicateNote')}</p>
+          <ul className="mt-2 space-y-1">
+            {duplicates.map((candidate) => (
+              <li key={candidate.id} className="flex flex-wrap items-center gap-2">
+                <span className="font-mono">{candidate.candidate?.public_code}</span>
+                <span className="hint">
+                  {formatDistance(candidate.distance_m)} {t('common.away')}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <Button
+        variant="secondary"
+        className="mt-3"
+        onClick={() => navigate(`/tickets/${mergedInto?.id ?? ticket.id}`)}
+      >
+        {mergedInto ? t('report.viewMain') : t('report.viewReport')}
+      </Button>
+    </Card>
   )
 }

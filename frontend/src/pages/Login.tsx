@@ -1,6 +1,8 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Button, ErrorNote, Field } from '../components/ui'
+import { ResendVerification } from '../components/ResendVerification'
+import { Button, ErrorNote, Field, SuccessNote } from '../components/ui'
+import { ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useI18n } from '../lib/i18n'
 import { usePrefs } from '../lib/prefs'
@@ -97,16 +99,37 @@ export function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Sign-in was refused because the email is not verified yet.
+  const [unverified, setUnverified] = useState(false)
+  // Arrived from the link in the verification email.
+  const [justVerified, setJustVerified] = useState(false)
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+    if (params.get('verified') === '1' || hash.get('type') === 'signup') {
+      setJustVerified(!hash.get('error'))
+      if (hash.get('error_description')) setError(hash.get('error_description'))
+      // Supabase appends the new session's tokens to the link. This app
+      // signs in through its own API, so drop them from the address bar
+      // (and from history) rather than leave tokens lying around.
+      window.history.replaceState(null, '', '/login')
+    }
+  }, [])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setError(null)
+    setUnverified(false)
     setBusy(true)
 
     try {
       const profile = await signIn(email, password)
       navigate(profile.role === 'citizen' ? '/' : '/authority', { replace: true })
     } catch (err) {
+      if (err instanceof ApiError && err.status === 403 && /verify your email/i.test(err.message)) {
+        setUnverified(true)
+      }
       setError(err instanceof Error ? err.message : t('common.error'))
     } finally {
       setBusy(false)
@@ -120,7 +143,9 @@ export function Login() {
           {t('auth.login')}
         </h2>
 
+        {justVerified && <SuccessNote>✅ {t('auth.verified')}</SuccessNote>}
         {error && <ErrorNote message={error} />}
+        {unverified && <ResendVerification email={email} />}
 
         <Field label={t('auth.email')} required>
           <input

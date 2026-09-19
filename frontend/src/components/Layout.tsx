@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
+import { useQuery } from '../lib/cache'
 import { useAuth } from '../lib/auth'
 import { useI18n } from '../lib/i18n'
 import { usePrefs } from '../lib/prefs'
+import { preloadAllRoutes, preloadRoute } from '../routes'
+import { Spinner } from './ui'
 
 type NavItem = { to: string; label: string; icon: string; end?: boolean }
 
@@ -77,31 +80,25 @@ export function Layout() {
   const { t } = useI18n()
   const { profile, signOut, isAuthority, isAdmin } = useAuth()
   const navigate = useNavigate()
-  const [unread, setUnread] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
 
-  // Poll for notifications. Supabase Realtime would need RLS policies that
-  // duplicate the backend's ward rules; a 30s poll keeps one source of truth.
+  // The unread badge. Read through the shared cache, so it is the *same*
+  // entry the notifications page updates: marking everything read there
+  // refreshes this badge at once, instead of it showing the old count until
+  // the next poll (the "still says 1 after mark all read" bug). Polled every
+  // 30s and on returning to the tab -- Supabase Realtime would need RLS
+  // policies duplicating the backend's ward rules.
+  const { data: badge } = useQuery(
+    profile ? `notifications:unread:${profile.id}` : null,
+    () => api.notifications(true),
+    { refetchIntervalMs: 30_000 },
+  )
+  const unread = badge?.unread ?? 0
+
+  // The first screen is up: fetch every other page's code in the background.
   useEffect(() => {
-    if (!profile) return
-
-    let cancelled = false
-    const tick = async () => {
-      try {
-        const result = await api.notifications(true)
-        if (!cancelled) setUnread(result.unread)
-      } catch {
-        // Offline or expired token; the next tick retries.
-      }
-    }
-
-    void tick()
-    const timer = setInterval(tick, 30_000)
-    return () => {
-      cancelled = true
-      clearInterval(timer)
-    }
-  }, [profile])
+    preloadAllRoutes()
+  }, [])
 
   const citizenNav: NavItem[] = [
     { to: '/', label: t('nav.home'), icon: '🏠', end: true },
@@ -109,6 +106,8 @@ export function Layout() {
     { to: '/nearby', label: t('nav.nearby'), icon: '📍' },
     { to: '/services', label: t('nav.services'), icon: '🏥' },
     { to: '/sos', label: t('nav.sos'), icon: '🆘' },
+    { to: '/safe-route', label: t('nav.safeRoute'), icon: '🧭' },
+    { to: '/civic', label: t('nav.civic'), icon: '🚯' },
   ]
 
   const authorityNav: NavItem[] = [
@@ -116,6 +115,7 @@ export function Layout() {
     { to: '/authority/duplicates', label: t('nav.reviewQueue'), icon: '🔗' },
     { to: '/authority/emergencies', label: t('nav.sosQueue'), icon: '🆘' },
     { to: '/authority/alerts', label: t('nav.publishAlert'), icon: '📢' },
+    { to: '/authority/civic', label: t('nav.civicQueue'), icon: '🚯' },
   ]
 
   const items = isAuthority ? authorityNav : citizenNav
@@ -160,6 +160,9 @@ export function Layout() {
               <NavLink
                 key={item.to}
                 to={item.to}
+                onMouseEnter={() => preloadRoute(item.to)}
+                onFocus={() => preloadRoute(item.to)}
+                onTouchStart={() => preloadRoute(item.to)}
                 end={item.end}
                 className="rounded-lg px-3 py-2 font-medium"
                 style={({ isActive }) => ({
@@ -223,6 +226,9 @@ export function Layout() {
               <NavLink
                 key={item.to}
                 to={item.to}
+                onMouseEnter={() => preloadRoute(item.to)}
+                onFocus={() => preloadRoute(item.to)}
+                onTouchStart={() => preloadRoute(item.to)}
                 end={item.end}
                 onClick={() => setMenuOpen(false)}
                 className="flex items-center gap-3 rounded-lg px-3 py-3"
@@ -248,7 +254,11 @@ export function Layout() {
       </header>
 
       <main id="main" className="mx-auto max-w-6xl px-4 py-6 pb-28 md:pb-10">
-        <Outlet />
+        {/* The header and nav stay put while a page's code arrives; only the
+            content area waits (and, after the idle preload, never does). */}
+        <Suspense fallback={<Spinner />}>
+          <Outlet />
+        </Suspense>
       </main>
 
       {/* Bottom bar on phones: thumb-reachable, which matters for SOS. */}
@@ -265,6 +275,9 @@ export function Layout() {
             <NavLink
               key={item.to}
               to={item.to}
+              onMouseEnter={() => preloadRoute(item.to)}
+              onFocus={() => preloadRoute(item.to)}
+              onTouchStart={() => preloadRoute(item.to)}
               end={item.end}
               className="flex flex-1 flex-col items-center justify-center gap-0.5 py-2"
               style={({ isActive }) => ({

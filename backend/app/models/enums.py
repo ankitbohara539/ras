@@ -98,3 +98,33 @@ class NotificationType(StrEnum):
     TICKET_COMMENTED = "ticket_commented"
     ALERT_PUBLISHED = "alert_published"
     ACCOUNT_APPROVED = "account_approved"
+    CIVIC_COMPLAINT_UPDATED = "civic_complaint_updated"
+
+
+class CivicCategory(StrEnum):
+    """What a person was seen doing. Grouped in the app as: waste, nuisance,
+    obstruction, damage."""
+
+    # Waste
+    LITTERING = "littering"
+    DUMPING_WASTE = "dumping_waste"
+    BURNING_WASTE = "burning_waste"
+    # Public nuisance
+    SPITTING = "spitting"
+    PUBLIC_URINATION = "public_urination"
+    SMOKING_IN_PUBLIC = "smoking_in_public"
+    NOISE = "noise"
+    # Obstruction
+    ILLEGAL_PARKING = "illegal_parking"
+    FOOTPATH_ENCROACHMENT = "footpath_encroachment"
+    # Damage
+    VANDALISM = "vandalism"
+    PET_WASTE = "pet_waste"
+    OTHER = "other"
+
+
+class CivicStatus(StrEnum):
+    SUBMITTED = "submitted"
+    UNDER_REVIEW = "under_review"
+    ACTION_TAKEN = "action_taken"
+    DISMISSED = "dismissed"
