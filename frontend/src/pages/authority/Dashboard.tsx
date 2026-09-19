@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '../../lib/cache'
 import { Link } from 'react-router-dom'
+import { DashboardSummaryModal } from '../../components/DashboardSummaryModal'
 import { TicketCard } from '../../components/TicketCard'
-import { EmptyState, PageTitle, Spinner, Stat } from '../../components/ui'
+import { Button, EmptyState, PageTitle, Spinner, Stat } from '../../components/ui'
 import { api } from '../../lib/api'
 import { useAuth } from '../../lib/auth'
 import { useI18n } from '../../lib/i18n'
@@ -48,6 +49,7 @@ export function AuthorityDashboard() {
   const subtitle = ward && municipalityName ? `${municipalityName} · ${t('dashboard.title')}` : t('dashboard.title')
 
   const [filter, setFilter] = useState<TicketStatus | 'all'>('all')
+  const [showSummary, setShowSummary] = useState(false)
 
   // Counts are decoration; the list below is the real content. Both come
   // through the cache so returning to the dashboard is instant, and both are
@@ -84,7 +86,17 @@ export function AuthorityDashboard() {
 
   return (
     <div className="space-y-5">
-      <PageTitle title={title} subtitle={subtitle} />
+      <PageTitle
+        title={title}
+        subtitle={subtitle}
+        action={
+          <Button variant="secondary" onClick={() => setShowSummary(true)}>
+            ✨ {t('summary.buttonLabel')}
+          </Button>
+        }
+      />
+
+      {showSummary && <DashboardSummaryModal onClose={() => setShowSummary(false)} />}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label={t('dashboard.open')} value={counts.open} />

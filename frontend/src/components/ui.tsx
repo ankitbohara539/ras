@@ -232,6 +232,69 @@ export function SpeakButton({ text }: { text: string }) {
   )
 }
 
+/**
+ * A modal dialog: click the backdrop, press Escape, or use the ✕ to close.
+ * The page behind it stops scrolling while it is open.
+ */
+export function Modal({
+  title,
+  onClose,
+  children,
+  footer,
+}: {
+  title: string
+  onClose: () => void
+  children: ReactNode
+  footer?: ReactNode
+}) {
+  const { t } = useI18n()
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = previousOverflow
+    }
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="card max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-b-none p-5 sm:rounded-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <h2 className="font-bold" style={{ fontSize: 'var(--step-lg)' }}>
+            {title}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn btn-ghost shrink-0"
+            style={{ minHeight: 'auto', padding: '0.25rem 0.6rem' }}
+            aria-label={t('common.close')}
+          >
+            ✕
+          </button>
+        </div>
+        {children}
+        {footer && <div className="mt-4 flex flex-wrap gap-2">{footer}</div>}
+      </div>
+    </div>
+  )
+}
+
 export function Field({
   label,
   hint,

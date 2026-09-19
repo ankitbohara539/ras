@@ -6,6 +6,7 @@ import type {
   CivicCategory,
   CivicService,
   CivicStatus,
+  DashboardSummary,
   Coords,
   DuplicateCandidate,
   Hazard,
@@ -134,6 +135,60 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
 
   return payload as T
+}
+
+export type SummaryStreamEvent =
+  | { type: 'meta'; summary: DashboardSummary }
+  | { type: 'delta'; text: string }
+  | { type: 'reset' }
+  | { type: 'done'; summary: DashboardSummary }
+
+/**
+ * The dashboard briefing, delivered live: one event per line of the
+ * response as the model writes it. `refresh` regenerates instead of
+ * replaying the cached answer; the backend rate-limits that to once a
+ * minute per person and answers 429 (as an ApiError) before streaming.
+ */
+export async function streamDashboardSummary(
+  refresh: boolean,
+  language: string,
+  onEvent: (event: SummaryStreamEvent) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const headers: Record<string, string> = {}
+  const token = getToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  const response = await fetch(
+    `${API_URL}/api/users/me/summary/stream${query({ refresh: refresh || undefined, lang: language })}`,
+    { headers, signal },
+  )
+  if (!response.ok || !response.body) {
+    let message = `Server error (${response.status}).`
+    try {
+      const payload = (await response.json()) as { detail?: unknown }
+      if (typeof payload.detail === 'string') message = payload.detail
+    } catch {
+      // Not JSON -- keep the status message.
+    }
+    throw new ApiError(response.status, message)
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { value, done } = await reader.read()
+    buffer += decoder.decode(value, { stream: !done })
+    let newline
+    while ((newline = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, newline).trim()
+      buffer = buffer.slice(newline + 1)
+      if (line) onEvent(JSON.parse(line) as SummaryStreamEvent)
+    }
+    if (done) break
+  }
+  if (buffer.trim()) onEvent(JSON.parse(buffer) as SummaryStreamEvent)
 }
 
 function query(params: Record<string, unknown>): string {

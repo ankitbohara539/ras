@@ -1,6 +1,9 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { DashboardSummaryModal } from '../../components/DashboardSummaryModal'
 import { TicketCard } from '../../components/TicketCard'
 import {
+  Button,
   Card,
   EmptyState,
   SeverityBadge,
@@ -16,6 +19,7 @@ import type { Alert, TicketSummary } from '../../lib/types'
 export function CitizenHome() {
   const { t, pick } = useI18n()
   const { profile } = useAuth()
+  const [showSummary, setShowSummary] = useState(false)
 
   // Home is the page people return to most, so it paints from cache and
   // refreshes behind the scenes. Each half fails on its own: no alerts is
@@ -39,6 +43,24 @@ export function CitizenHome() {
         </h1>
         <p className="hint">{t('app.tagline')}</p>
       </div>
+
+      <div
+        className="card flex flex-wrap items-center gap-3 p-4"
+        style={{ background: 'var(--color-brand-soft)', borderColor: 'var(--color-brand)' }}
+      >
+        <span aria-hidden="true" style={{ fontSize: '1.75rem' }}>
+          ✨
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="font-bold" style={{ fontSize: 'var(--step-md)' }}>
+            {t('summary.citizenCardTitle')}
+          </p>
+          <p className="hint">{t('summary.citizenCardHint')}</p>
+        </div>
+        <Button onClick={() => setShowSummary(true)}>{t('summary.buttonLabel')}</Button>
+      </div>
+
+      {showSummary && <DashboardSummaryModal onClose={() => setShowSummary(false)} />}
 
       <div className="grid gap-3 sm:grid-cols-2">
         <Link
