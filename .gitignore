@@ -3,6 +3,13 @@ node_modules/
 dist/
 dev-dist/
 
+# Frontend generated files
+frontend/.next/
+frontend/test-results/
+
+# Runtime uploads
+backend/uploads/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -11,6 +18,7 @@ __pycache__/
 .venv/
 venv/
 *.env
+!.env.example
 
 # Environment files (templates remain tracked)
 
