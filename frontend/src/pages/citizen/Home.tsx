@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowRight,
@@ -7,10 +8,13 @@ import {
   MapPin,
   Route,
   Siren,
+  Sparkles,
   Users,
 } from 'lucide-react'
+import { DashboardSummaryModal } from '../../components/DashboardSummaryModal'
 import { TicketCard } from '../../components/TicketCard'
 import {
+  Button,
   Card,
   EmptyState,
   ErrorNote,
@@ -28,6 +32,7 @@ export function CitizenHome() {
   const { t, pick, language } = useI18n()
   const text = (en: string, ne: string) => (language === 'ne' ? ne : en)
   const { profile } = useAuth()
+  const [showSummary, setShowSummary] = useState(false)
 
   // Home is the page people return to most, so it paints from cache and
   // refreshes behind the scenes. Each half fails on its own: no alerts is
@@ -65,6 +70,24 @@ export function CitizenHome() {
           <ArrowRight size={16} />
         </Link>
       </section>
+
+      <div
+        className="card flex flex-wrap items-center gap-3 p-4"
+        style={{ background: 'var(--color-brand-soft)', borderColor: 'var(--color-brand)' }}
+      >
+        <span className="icon-tile border-brand/20 bg-surface text-brand">
+          <Sparkles size={19} aria-hidden="true" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="font-bold" style={{ fontSize: 'var(--step-md)' }}>
+            {t('summary.citizenCardTitle')}
+          </p>
+          <p className="hint">{t('summary.citizenCardHint')}</p>
+        </div>
+        <Button onClick={() => setShowSummary(true)}>{t('summary.buttonLabel')}</Button>
+      </div>
+
+      {showSummary && <DashboardSummaryModal onClose={() => setShowSummary(false)} />}
 
       <section className="grid gap-4 md:grid-cols-[1.5fr_1fr]">
         <div className="dashboard-primary-action rounded-2xl bg-ink p-6 text-white shadow-[0_18px_45px_rgba(29,41,61,0.16)] sm:p-8">

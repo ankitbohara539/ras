@@ -6,9 +6,11 @@ import {
   CopyCheck,
   Search,
   Siren,
+  Sparkles,
 } from 'lucide-react'
 import { useQuery } from '../../lib/cache'
 import { Link } from 'react-router-dom'
+import { DashboardSummaryModal } from '../../components/DashboardSummaryModal'
 import { TicketCard } from '../../components/TicketCard'
 import {
   EmptyState,
@@ -76,6 +78,7 @@ export function AuthorityDashboard() {
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
+  const [showSummary, setShowSummary] = useState(false)
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setQuery(search.trim())
@@ -143,12 +146,25 @@ export function AuthorityDashboard() {
             </h1>
             <p className="mt-1.5 text-sm text-ink-soft">{subtitle}</p>
           </div>
-          <Link className="btn btn-secondary" to="/public-dashboard">
-            <ChartNoAxesCombined size={16} />
-            {t('transparency.title')}
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setShowSummary(true)}
+            >
+              <Sparkles size={16} />
+              {t('summary.buttonLabel')}
+            </button>
+            <Link className="btn btn-secondary" to="/public-dashboard">
+              <ChartNoAxesCombined size={16} />
+              {t('transparency.title')}
+            </Link>
+          </div>
         </div>
       </section>
+      {showSummary && (
+        <DashboardSummaryModal onClose={() => setShowSummary(false)} />
+      )}
       {countsQuery.error instanceof Error && (
         <ErrorNote message={countsQuery.error.message} />
       )}

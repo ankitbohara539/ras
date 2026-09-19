@@ -330,6 +330,48 @@ export function ConfirmDialog({ trigger, title, description, confirmLabel, onCon
   </DialogPrimitive.Root>
 }
 
+/** Shared modal shell. Radix handles focus, Escape, backdrop clicks, and scroll locking. */
+export function Modal({
+  title,
+  onClose,
+  children,
+  footer,
+}: {
+  title: string
+  onClose: () => void
+  children: ReactNode
+  footer?: ReactNode
+}) {
+  const { t } = useI18n()
+  return (
+    <DialogPrimitive.Root open onOpenChange={(open) => !open && onClose()}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[70] bg-navy/45 backdrop-blur-[2px]" />
+        <DialogPrimitive.Content className="fixed bottom-0 left-1/2 z-[71] max-h-[90vh] w-full max-w-lg -translate-x-1/2 overflow-y-auto rounded-t-2xl border border-line bg-surface p-5 shadow-2xl focus:outline-none sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:rounded-2xl">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <DialogPrimitive.Title className="font-bold" style={{ fontSize: 'var(--step-lg)' }}>
+              {title}
+            </DialogPrimitive.Title>
+            <DialogPrimitive.Close asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="shrink-0"
+                aria-label={t('common.close')}
+              >
+                <X size={18} />
+              </Button>
+            </DialogPrimitive.Close>
+          </div>
+          {children}
+          {footer && <div className="mt-4 flex flex-wrap gap-2">{footer}</div>}
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  )
+}
+
 export function Field({
   label,
   hint,

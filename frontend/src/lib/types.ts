@@ -394,3 +394,41 @@ export type RoutePlan = {
 }
 
 export type PlaceResult = Coords & { name: string; display_name: string }
+
+// One row of the briefing's issue list -- real ticket data, never AI text.
+export type DashboardIssue = {
+  id: string
+  code: string
+  title: string
+  priority: TicketPriority
+  status: TicketStatus
+  reporters: number
+  age_days: number
+}
+
+export type DashboardSummary = {
+  audience: 'citizen' | 'officer'
+  // One short lead-in sentence -- the issue list below is the actual content.
+  text: string
+  // False when the model was unavailable and `text` is a templated fallback
+  // built from the same numbers -- shown, not hidden, in the UI.
+  ai_generated: boolean
+  generated_at: string
+  scope_label: string | null
+  issues: DashboardIssue[]
+
+  // citizen
+  total_reports: number | null
+  open_reports: number | null
+  ward_open_reports: number | null
+
+  // officer
+  open_reports_officer: number | null
+  needs_attention: number | null
+  oldest_open_days: number | null
+  top_category_name: string | null
+  top_category_count: number | null
+  pending_duplicates: number | null
+  open_sos: number | null
+  pending_civic: number | null
+}
