@@ -1,6 +1,8 @@
 # Dependencies and build output
 node_modules/
 dist/
+test-results/
+playwright-report/
 
 # Python
 __pycache__/
@@ -11,6 +13,18 @@ __pycache__/
 venv/
 
 # Environment files (templates remain tracked)
+.env
+.env.local
+**/.env
+**/.env.local
+!**/.env.example
+
+# Next.js
+.next/
+out/
+
+# Local uploads
+backend/uploads/
 
 
 # Editors and operating systems
@@ -18,4 +32,3 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
-
