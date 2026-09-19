@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Map, MapPin } from 'lucide-react'
 import { CivicStatusBadge } from '../../components/CivicStatusBadge'
 import { LocationMap } from '../../components/LocationMap'
 import { Button, Card, EmptyState, ErrorNote, Field, PageTitle, Spinner } from '../../components/ui'
@@ -147,7 +148,7 @@ function ComplaintCard({
         <div>
           <dt className="hint">{t('report.location')}</dt>
           <dd>
-            {complaint.address_text && <span className="font-medium">📍 {complaint.address_text}</span>}
+            {complaint.address_text && <span className="inline-flex items-center gap-1 font-medium"><MapPin size={14} />{complaint.address_text}</span>}
             <br />
             <span className="font-mono hint">{formatCoords(complaint.latitude, complaint.longitude)}</span>{' '}
             <a
@@ -194,7 +195,7 @@ function ComplaintCard({
         style={{ minHeight: 'auto', padding: '0.25rem 0.6rem' }}
         onClick={() => setShowMap((v) => !v)}
       >
-        🗺 {showMap ? t('civicQueue.hideMap') : t('civicQueue.showMap')}
+        <Map size={16} />{showMap ? t('civicQueue.hideMap') : t('civicQueue.showMap')}
       </button>
       {showMap && (
         <div className="mt-2">

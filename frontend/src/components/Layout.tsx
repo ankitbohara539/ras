@@ -1,298 +1,344 @@
-import { Suspense, useEffect, useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Suspense, useEffect, useRef, useState } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import {
+  Bell,
+  Building2,
+  ChartNoAxesCombined,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardList,
+  CopyCheck,
+  FilePlus2,
+  House,
+  LogOut,
+  MapPin,
+  Megaphone,
+  Menu,
+  Route,
+  ShieldCheck,
+  Siren,
+  Users,
+  X,
+  type LucideIcon,
+} from 'lucide-react'
 import { api } from '../lib/api'
 import { useQuery } from '../lib/cache'
 import { useAuth } from '../lib/auth'
 import { useI18n } from '../lib/i18n'
-import { usePrefs } from '../lib/prefs'
 import { preloadAllRoutes, preloadRoute } from '../routes'
-import { Spinner } from './ui'
+import { Spinner, Tooltip } from './ui'
+import { Brand, DisplayControls } from './Brand'
 
-type NavItem = { to: string; label: string; icon: string; end?: boolean }
-
-function AccessibilityBar() {
-  const { t, language, setLanguage } = useI18n()
-  const { largeText, highContrast, setLargeText, setHighContrast } = usePrefs()
-
-  return (
-    <div
-      className="border-b"
-      style={{ background: 'var(--color-brand-ink)', borderColor: 'transparent' }}
-    >
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-end gap-2 px-4 py-1.5">
-        <div
-          className="flex items-center gap-1 rounded-full p-0.5"
-          style={{ background: 'rgba(255,255,255,0.14)' }}
-          role="group"
-          aria-label={t('a11y.language')}
-        >
-          {(['en', 'ne'] as const).map((code) => (
-            <button
-              key={code}
-              type="button"
-              onClick={() => setLanguage(code)}
-              aria-pressed={language === code}
-              className="rounded-full px-3 py-1 font-semibold"
-              style={{
-                fontSize: 'var(--step-xs)',
-                background: language === code ? '#ffffff' : 'transparent',
-                color: language === code ? 'var(--color-brand-ink)' : '#ffffff',
-              }}
-            >
-              {code === 'en' ? 'English' : 'नेपाली'}
-            </button>
-          ))}
-        </div>
-
-        <button
-          type="button"
-          onClick={() => setLargeText(!largeText)}
-          aria-pressed={largeText}
-          className="rounded-full px-3 py-1 font-semibold"
-          style={{
-            fontSize: 'var(--step-xs)',
-            background: largeText ? '#ffffff' : 'rgba(255,255,255,0.14)',
-            color: largeText ? 'var(--color-brand-ink)' : '#ffffff',
-          }}
-        >
-          <span aria-hidden="true">A+</span> {t('a11y.largeText')}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setHighContrast(!highContrast)}
-          aria-pressed={highContrast}
-          className="rounded-full px-3 py-1 font-semibold"
-          style={{
-            fontSize: 'var(--step-xs)',
-            background: highContrast ? '#ffffff' : 'rgba(255,255,255,0.14)',
-            color: highContrast ? 'var(--color-brand-ink)' : '#ffffff',
-          }}
-        >
-          <span aria-hidden="true">◐</span> {t('a11y.highContrast')}
-        </button>
-      </div>
-    </div>
-  )
-}
+type NavItem = { to: string; label: string; icon: LucideIcon; end?: boolean }
 
 export function Layout() {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
   const { profile, signOut, isAuthority, isAdmin } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const [menuOpen, setMenuOpen] = useState(false)
-
-  // The unread badge. Read through the shared cache, so it is the *same*
-  // entry the notifications page updates: marking everything read there
-  // refreshes this badge at once, instead of it showing the old count until
-  // the next poll (the "still says 1 after mark all read" bug). Polled every
-  // 30s and on returning to the tab -- Supabase Realtime would need RLS
-  // policies duplicating the backend's ward rules.
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem('sahayatri.sidebar-collapsed') === '1' } catch { return false }
+  })
+  const drawer = useRef<HTMLDialogElement>(null)
+  const menuButton = useRef<HTMLButtonElement>(null)
   const { data: badge } = useQuery(
     profile ? `notifications:unread:${profile.id}` : null,
     () => api.notifications(true),
     { refetchIntervalMs: 30_000 },
   )
   const unread = badge?.unread ?? 0
-
-  // The first screen is up: fetch every other page's code in the background.
+  const text = (en: string, ne: string) => (language === 'ne' ? ne : en)
   useEffect(() => {
     preloadAllRoutes()
   }, [])
+  useEffect(() => {
+    try { localStorage.setItem('sahayatri.sidebar-collapsed', collapsed ? '1' : '0') } catch { /* preference remains in memory */ }
+  }, [collapsed])
+  useEffect(() => {
+    if (menuOpen) {
+      drawer.current?.showModal()
+      const previous = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
+      return () => {
+        document.body.style.overflow = previous
+      }
+    }
+    drawer.current?.close()
+  }, [menuOpen])
 
-  const citizenNav: NavItem[] = [
-    { to: '/', label: t('nav.home'), icon: '🏠', end: true },
-    { to: '/report', label: t('nav.report'), icon: '📝' },
-    { to: '/nearby', label: t('nav.nearby'), icon: '📍' },
-    { to: '/services', label: t('nav.services'), icon: '🏥' },
-    { to: '/sos', label: t('nav.sos'), icon: '🆘' },
-    { to: '/safe-route', label: t('nav.safeRoute'), icon: '🧭' },
-    { to: '/civic', label: t('nav.civic'), icon: '🚯' },
+  const citizen: NavItem[] = [
+    { to: '/', label: t('nav.home'), icon: House, end: true },
+    { to: '/report', label: t('nav.report'), icon: FilePlus2 },
+    { to: '/my-reports', label: t('nav.myReports'), icon: ClipboardList },
+    { to: '/civic', label: t('nav.civic'), icon: Users },
   ]
-
-  const authorityNav: NavItem[] = [
-    { to: '/authority', label: t('nav.dashboard'), icon: '📊', end: true },
-    { to: '/authority/duplicates', label: t('nav.reviewQueue'), icon: '🔗' },
-    { to: '/authority/emergencies', label: t('nav.sosQueue'), icon: '🆘' },
-    { to: '/authority/alerts', label: t('nav.publishAlert'), icon: '📢' },
-    { to: '/authority/civic', label: t('nav.civicQueue'), icon: '🚯' },
+  const explore: NavItem[] = [
+    { to: '/nearby', label: t('nav.nearby'), icon: MapPin },
+    ...(!isAuthority ? [{ to: '/safe-route', label: t('nav.safeRoute'), icon: Route }] : []),
+    { to: '/services', label: t('nav.services'), icon: Building2 },
   ]
-
-  const items = isAuthority ? authorityNav : citizenNav
-  if (isAdmin) {
-    items.push({ to: '/admin/approvals', label: t('nav.approvals'), icon: '✅' })
+  const authority: NavItem[] = [
+    {
+      to: '/authority',
+      label: t('nav.dashboard'),
+      icon: ChartNoAxesCombined,
+      end: true,
+    },
+    {
+      to: '/authority/duplicates',
+      label: t('nav.reviewQueue'),
+      icon: CopyCheck,
+    },
+    { to: '/authority/civic', label: t('nav.civicQueue'), icon: Users },
+    { to: '/authority/alerts', label: t('nav.publishAlert'), icon: Megaphone },
+    ...(isAdmin
+      ? [
+          {
+            to: '/admin/approvals',
+            label: t('nav.approvals'),
+            icon: ShieldCheck,
+          },
+        ]
+      : []),
+  ]
+  const emergency: NavItem = {
+    to: isAuthority ? '/authority/emergencies' : '/sos',
+    label: t(isAuthority ? 'nav.sosQueue' : 'nav.sos'),
+    icon: Siren,
   }
-
-  const handleSignOut = () => {
+  const groups = [
+    {
+      label: text('Workspace', 'कार्यस्थल'),
+      items: isAuthority ? authority : citizen,
+    },
+    {
+      label: text('Explore your community', 'समुदाय हेर्नुहोस्'),
+      items: [
+        ...explore,
+        {
+          to: '/public-dashboard',
+          label: t('transparency.title'),
+          icon: ChartNoAxesCombined,
+        },
+      ],
+    },
+    {
+      label: text('Safety & updates', 'सुरक्षा र सूचना'),
+      items: [
+        emergency,
+        { to: '/notifications', label: t('nav.notifications'), icon: Bell },
+      ],
+    },
+  ]
+  const current = groups
+    .flatMap((g) => g.items)
+    .find((i) => i.to === location.pathname)
+  const mobile = isAuthority
+    ? [authority[0], authority[1], emergency, authority[2], authority[3]]
+    : [citizen[0], explore[0], citizen[1], explore[2], emergency]
+  const closeMenu = () => {
+    setMenuOpen(false)
+    menuButton.current?.focus()
+  }
+  const logout = () => {
+    setMenuOpen(false)
     signOut()
     navigate('/login')
   }
-
+  const navigation = (compact = false) => (
+    <>
+      <div className="space-y-6 px-3 py-6">
+        {groups.map((group) => (
+          <section key={group.label}>
+            <h2 className={compact ? 'mx-3 my-3 border-t border-line text-[0px]' : 'section-label mb-2 px-3'}>{group.label}</h2>
+            <div className="space-y-1">
+              {group.items.map(({ icon: Icon, ...item }) => (
+                <Tooltip key={item.to} content={item.label}>
+                <NavLink
+                  to={item.to}
+                  end={item.end}
+                  className={compact ? 'nav-link justify-center px-0' : 'nav-link'}
+                  onClick={() => setMenuOpen(false)}
+                  onMouseEnter={() => preloadRoute(item.to)}
+                  onFocus={() => preloadRoute(item.to)}
+                >
+                  <Icon aria-hidden="true" />
+                  <span className={compact ? 'sr-only' : ''}>{item.label}</span>
+                </NavLink>
+                </Tooltip>
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+      <div className={compact ? 'mt-auto space-y-2 border-t border-line p-2' : 'mt-auto space-y-2 border-t border-line p-4'}>
+        <div className="mb-3 flex items-center gap-3">
+          <span className="icon-tile font-semibold">
+            {profile?.full_name?.slice(0, 1)}
+          </span>
+          <div className={compact ? 'sr-only' : 'min-w-0'}>
+            <p className="truncate text-sm font-semibold">
+              {profile?.full_name}
+            </p>
+            <p className="hint">
+              {isAdmin
+                ? text('Administrator', 'प्रशासक')
+                : isAuthority
+                  ? text('Authority workspace', 'अधिकारी कार्यस्थल')
+                  : text('Citizen account', 'नागरिक खाता')}
+            </p>
+          </div>
+        </div>
+        <Tooltip content={t('nav.logout')}>
+          <button
+            type="button"
+            className={compact ? 'btn btn-secondary w-full px-0' : 'btn btn-secondary w-full'}
+            onClick={logout}
+          >
+            <LogOut size={16} />
+            <span className={compact ? 'sr-only' : ''}>{t('nav.logout')}</span>
+          </button>
+        </Tooltip>
+      </div>
+    </>
+  )
   return (
     <div className="min-h-screen">
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded focus:bg-white focus:px-4 focus:py-2"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-surface focus:p-3"
       >
-        Skip to content
+        {text('Skip to content', 'मुख्य सामग्रीमा जानुहोस्')}
       </a>
-
-      <AccessibilityBar />
-
-      <header
-        className="sticky top-0 z-40 border-b"
-        style={{ background: 'var(--color-surface)', borderColor: 'var(--color-line)' }}
-      >
-        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
-          <NavLink to="/" className="flex items-center gap-2 font-bold">
-            <span
-              className="flex h-9 w-9 items-center justify-center rounded-lg font-bold text-white"
-              style={{ background: 'var(--color-brand)' }}
-              aria-hidden="true"
-            >
-              स
-            </span>
-            <span style={{ fontSize: 'var(--step-lg)' }}>{t('app.name')}</span>
-          </NavLink>
-
-          <nav className="ml-auto hidden items-center gap-1 md:flex">
-            {items.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                onMouseEnter={() => preloadRoute(item.to)}
-                onFocus={() => preloadRoute(item.to)}
-                onTouchStart={() => preloadRoute(item.to)}
-                end={item.end}
-                className="rounded-lg px-3 py-2 font-medium"
-                style={({ isActive }) => ({
-                  fontSize: 'var(--step-sm)',
-                  background: isActive ? 'var(--color-brand-soft)' : 'transparent',
-                  color: isActive ? 'var(--color-brand-ink)' : 'var(--color-ink-soft)',
-                })}
-              >
-                {item.label}
-              </NavLink>
-            ))}
-          </nav>
-
-          <div className="ml-auto flex items-center gap-2 md:ml-0">
-            <NavLink
-              to="/notifications"
-              className="relative rounded-lg px-2 py-2"
-              aria-label={`${t('nav.notifications')}${unread ? ` (${unread})` : ''}`}
-            >
-              <span aria-hidden="true" style={{ fontSize: 'var(--step-lg)' }}>
-                🔔
-              </span>
-              {unread > 0 && (
-                <span
-                  className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full px-1 font-bold text-white"
-                  style={{ background: 'var(--color-danger)', fontSize: '0.7rem' }}
-                >
-                  {unread > 9 ? '9+' : unread}
-                </span>
-              )}
-            </NavLink>
-
-            <button
-              type="button"
-              className="btn btn-secondary hidden md:inline-flex"
-              onClick={handleSignOut}
-              style={{ minHeight: '38px' }}
-            >
-              {t('nav.logout')}
+      <aside className={`fixed inset-y-0 left-0 z-40 hidden flex-col overflow-visible border-r border-line bg-surface shadow-[8px_0_30px_rgba(29,41,61,0.035)] transition-[width] duration-300 ease-out lg:flex ${collapsed ? 'w-20' : 'w-64'}`}>
+        <div className={`flex min-h-20 items-center border-b border-line ${collapsed ? 'justify-center px-2' : 'px-4'}`}>
+          <Brand compact={collapsed} />
+          <Tooltip content={collapsed ? text('Expand sidebar', 'साइडबार खोल्नुहोस्') : text('Collapse sidebar', 'साइडबार बन्द गर्नुहोस्')}>
+            <button type="button" className="absolute -right-3 top-7 z-10 flex size-7 items-center justify-center rounded-full border border-line bg-surface text-ink-soft shadow-sm transition-colors hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand" onClick={() => setCollapsed(value => !value)} aria-label={collapsed ? text('Expand sidebar', 'साइडबार खोल्नुहोस्') : text('Collapse sidebar', 'साइडबार बन्द गर्नुहोस्')}>
+              {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
             </button>
-
-            <button
-              type="button"
-              className="btn btn-secondary md:hidden"
-              onClick={() => setMenuOpen((open) => !open)}
-              aria-expanded={menuOpen}
-              aria-label={t('nav.menu')}
-              style={{ minHeight: '38px', padding: '0 0.7rem' }}
-            >
-              ☰
-            </button>
-          </div>
+          </Tooltip>
         </div>
-
-        {menuOpen && (
-          <nav
-            className="border-t px-4 py-2 md:hidden"
-            style={{ borderColor: 'var(--color-line)' }}
-          >
-            {items.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                onMouseEnter={() => preloadRoute(item.to)}
-                onFocus={() => preloadRoute(item.to)}
-                onTouchStart={() => preloadRoute(item.to)}
-                end={item.end}
-                onClick={() => setMenuOpen(false)}
-                className="flex items-center gap-3 rounded-lg px-3 py-3"
-                style={({ isActive }) => ({
-                  background: isActive ? 'var(--color-brand-soft)' : 'transparent',
-                  color: isActive ? 'var(--color-brand-ink)' : 'var(--color-ink)',
-                })}
+        <div className="sidebar-scroll flex min-h-0 flex-1 flex-col overflow-y-auto">
+          {navigation(collapsed)}
+        </div>
+      </aside>
+      <div className={`transition-[padding] duration-300 ease-out ${collapsed ? 'lg:pl-20' : 'lg:pl-64'}`}>
+        <header className="sticky top-0 z-30 border-b border-line bg-surface/95 shadow-[0_1px_8px_rgba(29,41,61,0.035)] backdrop-blur-md">
+          <div className="flex min-h-20 items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
+            <div className="flex min-w-0 items-center gap-3">
+              <button
+                ref={menuButton}
+                type="button"
+                className="btn btn-secondary px-3 lg:hidden"
+                onClick={() => setMenuOpen(true)}
+                aria-label={t('nav.menu')}
+                aria-expanded={menuOpen}
+                aria-controls="mobile-navigation"
               >
-                <span aria-hidden="true">{item.icon}</span>
-                {item.label}
+                <Menu size={20} />
+              </button>
+              <span className="lg:hidden">
+                <Brand />
+              </span>
+              <div className="hidden items-center gap-2 text-sm text-ink-soft lg:flex">
+                <span>{text('Workspace', 'कार्यस्थल')}</span>
+                <ChevronRight size={14} />
+                <span className="font-medium text-ink">
+                  {current?.label ?? text('Report details', 'उजुरी विवरण')}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="hidden sm:block">
+                <DisplayControls />
+              </div>
+              <NavLink
+                to="/notifications"
+                className="btn btn-secondary relative px-3"
+                aria-label={`${t('nav.notifications')} (${unread})`}
+              >
+                <Bell size={19} />
+                {unread > 0 && (
+                  <span className="absolute -right-1 -top-1 rounded-full bg-danger px-1.5 text-xs text-white">
+                    {unread > 9 ? '9+' : unread}
+                  </span>
+                )}
               </NavLink>
-            ))}
-            <button
-              type="button"
-              onClick={handleSignOut}
-              className="mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left"
-            >
-              <span aria-hidden="true">🚪</span>
-              {t('nav.logout')}
-            </button>
-          </nav>
-        )}
-      </header>
-
-      <main id="main" className="mx-auto max-w-6xl px-4 py-6 pb-28 md:pb-10">
-        {/* The header and nav stay put while a page's code arrives; only the
-            content area waits (and, after the idle preload, never does). */}
-        <Suspense fallback={<Spinner />}>
-          <Outlet />
-        </Suspense>
-      </main>
-
-      {/* Bottom bar on phones: thumb-reachable, which matters for SOS. */}
-      <nav
-        className="fixed inset-x-0 bottom-0 z-40 border-t md:hidden"
-        style={{
-          background: 'var(--color-surface)',
-          borderColor: 'var(--color-line)',
-          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+            </div>
+          </div>
+        </header>
+        <main
+          id="main"
+          className="mx-auto max-w-[1440px] px-4 py-6 pb-28 sm:px-6 lg:px-8 lg:py-8 lg:pb-10"
+        >
+          <Suspense fallback={<Spinner />}>
+            <Outlet />
+          </Suspense>
+        </main>
+      </div>
+      <dialog
+        id="mobile-navigation"
+        ref={drawer}
+        onCancel={closeMenu}
+        onClose={() => setMenuOpen(false)}
+        aria-labelledby="mobile-menu-title"
+        className="fixed inset-y-0 left-0 m-0 h-dvh max-h-none w-[min(88vw,340px)] max-w-none border-0 bg-surface p-0 text-ink backdrop:bg-navy/40"
+        onClick={(event) => {
+          if (
+            event.target === event.currentTarget &&
+            event.clientX > event.currentTarget.getBoundingClientRect().right
+          )
+            closeMenu()
         }}
       >
-        <div className="flex">
-          {items.slice(0, 5).map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              onMouseEnter={() => preloadRoute(item.to)}
-              onFocus={() => preloadRoute(item.to)}
-              onTouchStart={() => preloadRoute(item.to)}
-              end={item.end}
-              className="flex flex-1 flex-col items-center justify-center gap-0.5 py-2"
-              style={({ isActive }) => ({
-                minHeight: 'var(--tap)',
-                color: isActive ? 'var(--color-brand)' : 'var(--color-ink-faint)',
-                fontWeight: isActive ? 700 : 500,
-              })}
+        <div className="flex min-h-full flex-col">
+          <div className="flex items-center justify-between border-b border-line p-4">
+            <h2 id="mobile-menu-title" className="font-semibold">
+              {t('nav.menu')}
+            </h2>
+            <button
+              type="button"
+              className="btn btn-ghost px-3"
+              aria-label={text('Close menu', 'मेनु बन्द गर्नुहोस्')}
+              onClick={closeMenu}
             >
-              <span aria-hidden="true" style={{ fontSize: '1.15rem' }}>
-                {item.icon}
-              </span>
-              <span style={{ fontSize: '0.7rem' }}>{item.label}</span>
-            </NavLink>
-          ))}
+              <X size={20} />
+            </button>
+          </div>
+          <div className="border-b border-line px-4">
+            <DisplayControls />
+          </div>
+          {navigation(false)}
         </div>
+      </dialog>
+      <nav
+        aria-label={text('Primary navigation', 'मुख्य नेभिगेसन')}
+        className="fixed inset-x-0 bottom-0 z-40 flex border-t border-line bg-surface px-1 lg:hidden"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      >
+        {mobile.map(({ icon: Icon, ...item }) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.end}
+            className={({ isActive }) =>
+              `flex min-h-[68px] min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 text-center ${isActive ? 'font-semibold text-brand' : 'text-ink-soft'}`
+            }
+          >
+            <span
+              className={
+                item.to === '/report'
+                  ? 'rounded-lg bg-brand p-2 text-white'
+                  : 'p-1'
+              }
+            >
+              <Icon size={20} aria-hidden="true" />
+            </span>
+            <span className="text-[10px] leading-tight">{item.label}</span>
+          </NavLink>
+        ))}
       </nav>
     </div>
   )

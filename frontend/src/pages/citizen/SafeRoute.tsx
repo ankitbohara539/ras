@@ -1,4 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Accessibility,
+  AlertTriangle,
+  CarFront,
+  CheckCircle2,
+  LocateFixed,
+  LoaderCircle,
+  MapPin,
+  Moon,
+  MousePointer2,
+  Navigation,
+  PersonStanding,
+  Pin,
+} from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { HazardMap } from '../../components/HazardMap'
 import { Button, Card, ErrorNote, PageTitle } from '../../components/ui'
 import { api } from '../../lib/api'
@@ -9,10 +24,10 @@ import type { Coords, Hazard, PlaceResult, RoutePlan, TravelMode } from '../../l
 
 const KATHMANDU = { latitude: 27.7172, longitude: 85.324 }
 
-const MODES: { key: TravelMode; icon: string }[] = [
-  { key: 'walk', icon: '🚶' },
-  { key: 'wheelchair', icon: '♿' },
-  { key: 'drive', icon: '🚗' },
+const MODES: { key: TravelMode; icon: LucideIcon }[] = [
+  { key: 'walk', icon: PersonStanding },
+  { key: 'wheelchair', icon: Accessibility },
+  { key: 'drive', icon: CarFront },
 ]
 
 /**
@@ -29,6 +44,8 @@ export function SafeRoute() {
   const [startIsMe, setStartIsMe] = useState(true)
   const [end, setEnd] = useState<Coords | null>(null)
   const [endLabel, setEndLabel] = useState<string | null>(null)
+  const [endAddress, setEndAddress] = useState<string | null>(null)
+  const [endResolving, setEndResolving] = useState(false)
   const [picking, setPicking] = useState<'start' | 'end'>('end')
 
   const [hazards, setHazards] = useState<Hazard[]>([])
@@ -39,7 +56,10 @@ export function SafeRoute() {
 
   const [queryText, setQueryText] = useState('')
   const [results, setResults] = useState<PlaceResult[]>([])
+  const [searching, setSearching] = useState(false)
   const viewTimer = useRef<number | null>(null)
+  const searchRequest = useRef(0)
+  const addressRequest = useRef(0)
 
   useEffect(() => {
     locate()
@@ -69,18 +89,51 @@ export function SafeRoute() {
   // Place search, debounced.
   useEffect(() => {
     const q = queryText.trim()
+    const requestId = ++searchRequest.current
     if (q.length < 3) {
       setResults([])
+      setSearching(false)
       return
     }
     const timer = window.setTimeout(() => {
+      setSearching(true)
       api
         .searchPlaces(q, language)
-        .then(setResults)
-        .catch(() => setResults([]))
+        .then((places) => {
+          if (requestId === searchRequest.current) setResults(places)
+        })
+        .catch(() => {
+          if (requestId === searchRequest.current) setResults([])
+        })
+        .finally(() => {
+          if (requestId === searchRequest.current) setSearching(false)
+        })
     }, 600)
     return () => window.clearTimeout(timer)
   }, [queryText, language])
+
+  const resolveEndAddress = useCallback(
+    async (coords: Coords) => {
+      const requestId = ++addressRequest.current
+      setEndResolving(true)
+      setEndLabel(null)
+      setEndAddress(null)
+      try {
+        const place = await api.reverseGeocode(coords, language)
+        if (requestId !== addressRequest.current) return
+        setEndLabel(place.place_name)
+        setEndAddress(place.display_name ?? place.place_name)
+      } catch {
+        if (requestId === addressRequest.current) {
+          setEndLabel(null)
+          setEndAddress(null)
+        }
+      } finally {
+        if (requestId === addressRequest.current) setEndResolving(false)
+      }
+    },
+    [language],
+  )
 
   const onPick = useCallback(
     (coords: Coords) => {
@@ -90,11 +143,14 @@ export function SafeRoute() {
         setStartIsMe(false)
         setPicking('end')
       } else {
+        searchRequest.current += 1
+        setQueryText('')
+        setResults([])
         setEnd(coords)
-        setEndLabel(null)
+        void resolveEndAddress(coords)
       }
     },
-    [picking],
+    [picking, resolveEndAddress],
   )
 
   const findRoute = async () => {
@@ -102,7 +158,7 @@ export function SafeRoute() {
     setBusy(true)
     setError(null)
     try {
-      const result = await api.planRoute({ start, end, mode })
+      const result = await api.planRoute({ start, end, mode, night })
       setPlan(result)
       setHazards((current) => {
         // Merge in hazards along the route that may be outside the view.
@@ -131,7 +187,13 @@ export function SafeRoute() {
   const visibleForMode = hazards.filter((h) => h.modes.includes(mode))
   const kindLabel = (kind: string) => {
     const meta = hazardKind(kind)
-    return `${meta.icon} ${language === 'ne' ? meta.label[1] : meta.label[0]}`
+    const Icon = meta.icon
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <Icon size={15} aria-hidden="true" />
+        {language === 'ne' ? meta.label[1] : meta.label[0]}
+      </span>
+    )
   }
 
   return (
@@ -143,7 +205,8 @@ export function SafeRoute() {
         role="note"
         style={{ background: 'var(--color-warn-soft)', borderColor: 'var(--color-warn)', fontSize: 'var(--step-sm)' }}
       >
-        ⚠ {t('hazard.disclaimer')}
+        <AlertTriangle size={17} className="mr-2 inline" aria-hidden="true" />
+        {t('hazard.disclaimer')}
       </p>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
@@ -158,9 +221,12 @@ export function SafeRoute() {
             onPick={onPick}
             onView={onView}
           />
-          <p className="hint">
-            {picking === 'start' ? `👆 ${t('hazard.tapStart')}` : `👆 ${t('hazard.tapEnd')}`}
-            {night && ` · 🌙 ${t('hazard.nightMode')}`}
+          <p className="flex flex-wrap items-center gap-1.5 hint">
+            <MousePointer2 size={14} aria-hidden="true" />
+            {picking === 'start' ? t('hazard.tapStart') : t('hazard.tapEnd')}
+            {night && (
+              <><span aria-hidden="true">·</span><Moon size={14} aria-hidden="true" />{t('hazard.nightMode')}</>
+            )}
           </p>
         </div>
 
@@ -180,22 +246,23 @@ export function SafeRoute() {
                     setPlan(null)
                   }}
                 >
-                  {m.icon} {t(`hazard.mode.${m.key}` as never)}
+                  <m.icon size={16} aria-hidden="true" />
+                  {t(`hazard.mode.${m.key}` as never)}
                 </button>
               ))}
             </div>
 
-            <p className="label mt-4">🅰 {t('hazard.from')}</p>
+            <p className="label mt-4">{t('hazard.from')}</p>
             <div className="flex flex-wrap items-center gap-2" style={{ fontSize: 'var(--step-sm)' }}>
               <span>
                 {startIsMe
                   ? geo.kind === 'ready'
-                    ? `📍 ${t('hazard.myLocation')}`
+                    ? <span className="inline-flex items-center gap-1.5"><LocateFixed size={15} />{t('hazard.myLocation')}</span>
                     : geo.kind === 'locating'
                       ? t('report.locating')
                       : t('hazard.noLocation')
                   : start
-                    ? `📌 ${t('hazard.pointOnMap')}`
+                    ? <span className="inline-flex items-center gap-1.5"><Pin size={15} />{t('hazard.pointOnMap')}</span>
                     : '—'}
               </span>
               <button
@@ -221,15 +288,30 @@ export function SafeRoute() {
               )}
             </div>
 
-            <p className="label mt-4">🅱 {t('hazard.to')}</p>
-            <input
-              className="field"
-              type="search"
-              value={queryText}
-              onChange={(e) => setQueryText(e.target.value)}
-              placeholder={t('hazard.searchPlaceholder')}
-              aria-label={t('hazard.to')}
-            />
+            <p className="label mt-4">{t('hazard.to')}</p>
+            <div className="relative">
+              <input
+                className="field pr-10"
+                type="search"
+                value={queryText}
+                onChange={(e) => setQueryText(e.target.value)}
+                placeholder={t('hazard.searchPlaceholder')}
+                aria-label={t('hazard.to')}
+                aria-describedby={searching ? 'destination-search-status' : undefined}
+              />
+              {searching && (
+                <LoaderCircle
+                  size={17}
+                  className="absolute right-3 top-3.5 animate-spin text-ink-soft"
+                  aria-hidden="true"
+                />
+              )}
+            </div>
+            {searching && (
+              <p id="destination-search-status" className="mt-1 flex items-center gap-1.5 hint" role="status">
+                {t('hazard.searchingPlaces')}
+              </p>
+            )}
             {results.length > 0 && (
               <ul className="mt-1 max-h-48 overflow-auto rounded-lg border" style={{ borderColor: 'var(--color-line)' }}>
                 {results.map((place) => (
@@ -239,8 +321,12 @@ export function SafeRoute() {
                       className="w-full px-3 py-2 text-left hover:underline"
                       style={{ fontSize: 'var(--step-sm)' }}
                       onClick={() => {
+                        searchRequest.current += 1
+                        addressRequest.current += 1
                         setEnd({ latitude: place.latitude, longitude: place.longitude })
                         setEndLabel(place.name)
+                        setEndAddress(place.display_name)
+                        setEndResolving(false)
                         setQueryText('')
                         setResults([])
                         setPlan(null)
@@ -248,18 +334,45 @@ export function SafeRoute() {
                     >
                       <span className="font-semibold">{place.name}</span>
                       <br />
-                      <span className="hint">{place.display_name}</span>
+                      <span className="line-clamp-2 hint">{place.display_name}</span>
                     </button>
                   </li>
                 ))}
               </ul>
             )}
-            <p className="mt-1" style={{ fontSize: 'var(--step-sm)' }}>
-              {end ? `📌 ${endLabel ?? t('hazard.pointOnMap')}` : <span className="hint">{t('hazard.tapEnd')}</span>}
-            </p>
+            <div
+              className="mt-2 flex items-start gap-3 rounded-lg border border-line bg-canvas p-3"
+              data-testid="destination-summary"
+              aria-live="polite"
+            >
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-danger text-xs font-bold text-white">
+                B
+              </span>
+              <div className="min-w-0 flex-1" style={{ fontSize: 'var(--step-sm)' }}>
+                {endResolving ? (
+                  <span className="inline-flex items-center gap-2 text-ink-soft" role="status">
+                    <LoaderCircle size={15} className="animate-spin" aria-hidden="true" />
+                    {t('hazard.loadingAddress')}
+                  </span>
+                ) : end ? (
+                  <>
+                    <p className="flex items-center gap-1.5 font-semibold">
+                      <MapPin size={15} aria-hidden="true" />
+                      {endLabel ?? t('hazard.pointOnMap')}
+                    </p>
+                    {endAddress && (
+                      <p className="mt-1 line-clamp-3 text-ink-soft">{endAddress}</p>
+                    )}
+                  </>
+                ) : (
+                  <span className="hint">{t('hazard.tapEnd')}</span>
+                )}
+              </div>
+            </div>
 
             <Button className="mt-4 w-full" disabled={busy || !start || !end} onClick={findRoute}>
-              {busy ? t('hazard.finding') : `🧭 ${t('hazard.findRoute')}`}
+              {!busy && <Navigation size={16} aria-hidden="true" />}
+              {busy ? t('hazard.finding') : t('hazard.findRoute')}
             </Button>
           </Card>
 
@@ -268,7 +381,8 @@ export function SafeRoute() {
           {plan && recommended && (
             <Card>
               <h2 className="font-bold" style={{ fontSize: 'var(--step-md)' }}>
-                {plan.recommended === 'safer' ? `✅ ${t('hazard.saferFound')}` : `🧭 ${t('hazard.usualRoute')}`}
+                {plan.recommended === 'safer' ? <CheckCircle2 size={18} className="mr-2 inline text-good" /> : <Navigation size={18} className="mr-2 inline" />}
+                {plan.recommended === 'safer' ? t('hazard.saferFound') : t('hazard.usualRoute')}
               </h2>
               <p className="mt-1" style={{ fontSize: 'var(--step-sm)' }}>
                 {formatDistance(recommended.distance_m)} · {formatDuration(recommended.duration_s)}
@@ -335,9 +449,9 @@ export function SafeRoute() {
               })}
             </ul>
             <p className="mt-2 hint">
-              <span style={{ color: SEVERITY_COLOR.high }}>●</span> {t('hazard.sevHigh')}{' '}
-              <span style={{ color: SEVERITY_COLOR.medium }}>●</span> {t('hazard.sevMedium')}{' '}
-              <span style={{ color: SEVERITY_COLOR.low }}>●</span> {t('hazard.sevLow')}
+              <span className="inline-block size-2 rounded-full" style={{ background: SEVERITY_COLOR.high }} /> {t('hazard.sevHigh')}{' '}
+              <span className="inline-block size-2 rounded-full" style={{ background: SEVERITY_COLOR.medium }} /> {t('hazard.sevMedium')}{' '}
+              <span className="inline-block size-2 rounded-full" style={{ background: SEVERITY_COLOR.low }} /> {t('hazard.sevLow')}
             </p>
             <p className="mt-1 hint">{t('hazard.reportHint')}</p>
           </Card>

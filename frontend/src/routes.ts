@@ -61,7 +61,7 @@ const BY_PATH: [RegExp, () => Promise<unknown>][] = [
   [/^\/civic$/, loaders.civic],
   [/^\/safe-route$/, loaders.safeRoute],
   [/^\/notifications$/, loaders.notifications],
-  [/^\/transparency$/, loaders.transparency],
+  [/^\/(transparency|public-dashboard)$/, loaders.transparency],
   [/^\/authority\/duplicates$/, loaders.reviewQueue],
   [/^\/authority\/emergencies$/, loaders.sosQueue],
   [/^\/authority\/alerts$/, loaders.publishAlert],

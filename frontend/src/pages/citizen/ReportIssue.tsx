@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent } from 'react'
+import { CheckCircle2, Link2, Plus, Users } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button, Card, ErrorNote, PageTitle, StatusBadge } from '../../components/ui'
 import { api } from '../../lib/api'
@@ -129,9 +130,7 @@ export function ReportIssue() {
           className="card p-5 text-center"
           style={{ background: 'var(--color-good-soft)', borderColor: 'var(--color-good)' }}
         >
-          <p aria-hidden="true" style={{ fontSize: '2.5rem' }}>
-            ✅
-          </p>
+          <CheckCircle2 aria-hidden="true" className="mx-auto size-10 text-good" />
           <h1 className="font-bold" style={{ fontSize: 'var(--step-lg)', color: 'var(--color-good)' }}>
             {results.length > 1 ? t('report.submittedMany') : t('report.submitted')}
           </h1>
@@ -151,7 +150,7 @@ export function ReportIssue() {
               setSlots([{ key: nextKey.current++, startAt: null }])
             }}
           >
-            ➕ {t('report.reportAnother')}
+            <Plus size={16} /> {t('report.reportAnother')}
           </Button>
           <Link to="/" className="btn btn-secondary">
             {t('nav.home')}
@@ -170,7 +169,7 @@ export function ReportIssue() {
       {results.length > 0 && (
         <Card>
           <p className="font-semibold" style={{ color: 'var(--color-good)' }}>
-            ✅ {t('report.alreadyFiled')}
+            <CheckCircle2 size={17} className="mr-1.5 inline" />{t('report.alreadyFiled')}
           </p>
           <ul className="mt-1">
             {results.map((result) => (
@@ -200,7 +199,7 @@ export function ReportIssue() {
 
       {slots.length < MAX_REPORTS && (
         <Button type="button" variant="secondary" className="w-full" onClick={addReport} disabled={busy}>
-          ➕ {t('report.addAnother')}
+          <Plus size={16} /> {t('report.addAnother')}
         </Button>
       )}
       <p className="hint">{t('report.addAnotherHint')}</p>
@@ -243,7 +242,7 @@ function ResultCard({ result }: { result: TicketCreateResponse }) {
 
       {mergedInto && (
         <div className="mt-3 rounded-lg border p-3" style={{ borderColor: 'var(--color-brand)' }}>
-          <p className="font-semibold">🔗 {t('report.autoMerged')}</p>
+          <p className="font-semibold"><Link2 size={16} className="mr-1.5 inline" />{t('report.autoMerged')}</p>
           <p className="hint">{t('report.autoMergedNote')}</p>
           <p className="mt-1">
             <span className="font-mono font-semibold">{mergedInto.public_code}</span>{' '}
@@ -251,7 +250,7 @@ function ResultCard({ result }: { result: TicketCreateResponse }) {
               <span className="chip">{Math.round(result.auto_merge_score * 100)}%</span>
             )}{' '}
             <span className="hint">
-              👥 {mergedInto.child_count + 1} {t('ticket.reporters')}
+              <Users size={14} className="mr-1 inline" />{mergedInto.child_count + 1} {t('ticket.reporters')}
             </span>
           </p>
         </div>

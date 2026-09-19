@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Mail } from 'lucide-react'
 import { api } from '../lib/api'
 import { useI18n } from '../lib/i18n'
 import { Button, ErrorNote, SuccessNote } from './ui'
@@ -40,7 +41,7 @@ export function ResendVerification({ email }: { email: string }) {
         disabled={busy || !email}
         onClick={resend}
       >
-        ✉ {busy ? t('auth.sending') : t('auth.resendVerification')}
+        <Mail size={16} /> {busy ? t('auth.sending') : t('auth.resendVerification')}
       </Button>
       <p className="hint">{t('auth.checkSpam')}</p>
     </div>

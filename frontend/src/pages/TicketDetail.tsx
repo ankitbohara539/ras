@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Check, Link2, LocateFixed, LockKeyhole, MapPin, Users, X, Zap } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   Button,
   Card,
+  ConfirmDialog,
   ErrorNote,
   Field,
   PriorityBadge,
@@ -108,8 +111,11 @@ export function TicketDetailPage() {
       setCommentDraft('')
       // An urgent comment can raise the priority; show it without a refresh.
       await Promise.all([loadComments(), load()])
+      toast.success(t('common.success'))
     } catch (err) {
-      setCommentError(err instanceof Error ? err.message : t('common.error'))
+      const message = err instanceof Error ? err.message : t('common.error')
+      setCommentError(message)
+      toast.error(message)
     } finally {
       setCommentBusy(false)
     }
@@ -121,8 +127,11 @@ export function TicketDetailPage() {
     try {
       await api.deleteComment(id, commentId)
       await Promise.all([loadComments(), load()])
+      toast.success(t('common.success'))
     } catch (err) {
-      setCommentError(err instanceof Error ? err.message : t('common.error'))
+      const message = err instanceof Error ? err.message : t('common.error')
+      setCommentError(message)
+      toast.error(message)
     } finally {
       setCommentBusy(false)
     }
@@ -144,8 +153,11 @@ export function TicketDetailPage() {
       await action()
       if (successMessage) setMessage(successMessage)
       await load()
+      toast.success(successMessage ?? t('common.success'))
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('common.error'))
+      const message = err instanceof Error ? err.message : t('common.error')
+      setError(message)
+      toast.error(message)
     } finally {
       setBusy(false)
     }
@@ -189,7 +201,7 @@ export function TicketDetailPage() {
           {isAuthority && <PriorityBadge priority={ticket.priority} />}
           {isAuthority && ticket.priority_locked && (
             <span className="chip" title={t('priority.lockedHint')}>
-              🔒 {t('priority.manual')}
+              <LockKeyhole size={13} /> {t('priority.manual')}
             </span>
           )}
           {ticket.community_verified && (
@@ -201,7 +213,7 @@ export function TicketDetailPage() {
                 borderColor: 'var(--color-good)',
               }}
             >
-              ✓ {t('ticket.communityVerified')}
+              <Check size={13} /> {t('ticket.communityVerified')}
             </span>
           )}
           <div className="ml-auto">
@@ -224,7 +236,7 @@ export function TicketDetailPage() {
           <div className="sm:col-span-2">
             <dt className="hint">{t('report.location')}</dt>
             {ticket.address_text && (
-              <dd className="font-medium">📍 {ticket.address_text}</dd>
+              <dd className="inline-flex items-center gap-1 font-medium"><MapPin size={14} />{ticket.address_text}</dd>
             )}
             <dd className="font-mono" style={{ fontSize: 'var(--step-xs)' }}>
               {formatCoords(ticket.latitude, ticket.longitude)}
@@ -251,22 +263,22 @@ export function TicketDetailPage() {
           {reporters > 1 && (
             <div>
               <dt className="hint">{t('ticket.reporters')}</dt>
-              <dd className="font-bold" style={{ color: 'var(--color-brand)' }}>
-                👥 {reporters}
+              <dd className="flex items-center gap-1 font-bold" style={{ color: 'var(--color-brand)' }}>
+                <Users size={15} /> {reporters}
               </dd>
             </div>
           )}
           {ticket.corroboration_count > 0 && (
             <div>
               <dt className="hint">{t('ticket.confirmations')}</dt>
-              <dd className="font-medium">✓ {ticket.corroboration_count}</dd>
+              <dd className="flex items-center gap-1 font-medium"><Check size={14} />{ticket.corroboration_count}</dd>
             </div>
           )}
           {ticket.urgent_commenter_count > 0 && (
             <div>
               <dt className="hint">{t('comments.urgent')}</dt>
               <dd className="font-medium" style={{ color: 'var(--color-warn)' }}>
-                ⚡ {ticket.urgent_commenter_count} {t('comments.urgentCount')}
+                <Zap size={14} className="mr-1 inline" />{ticket.urgent_commenter_count} {t('comments.urgentCount')}
               </dd>
             </div>
           )}
@@ -348,7 +360,7 @@ export function TicketDetailPage() {
                   )
                 }
               >
-                ✓ {t('corroborate.yes')}
+                <Check size={16} /> {t('corroborate.yes')}
               </Button>
               <Button
                 variant="secondary"
@@ -365,12 +377,12 @@ export function TicketDetailPage() {
                   )
                 }
               >
-                ✕ {t('corroborate.no')}
+                <X size={16} /> {t('corroborate.no')}
               </Button>
             </div>
           ) : (
             <Button variant="secondary" onClick={locate} className="mt-3 w-full">
-              📍 {geo.kind === 'locating' ? t('report.locating') : t('report.useMyLocation')}
+              <LocateFixed size={16} /> {geo.kind === 'locating' ? t('report.locating') : t('report.useMyLocation')}
             </Button>
           )}
 
@@ -442,18 +454,13 @@ export function TicketDetailPage() {
                 </div>
 
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button
-                    disabled={busy}
-                    onClick={() =>
-                      act(
-                        () =>
-                          api.mergeTicket(ticket.id, candidate.candidate_ticket_id),
-                        'Merged.',
-                      )
-                    }
-                  >
-                    🔗 {t('review.merge')}
-                  </Button>
+                  <ConfirmDialog
+                    trigger={<Button disabled={busy}><Link2 size={16} />{t('review.merge')}</Button>}
+                    title={t('review.merge')}
+                    description="This will combine both reports into one public ticket and notify its reporters."
+                    confirmLabel={t('review.merge')}
+                    onConfirm={() => act(() => api.mergeTicket(ticket.id, candidate.candidate_ticket_id), 'Merged.')}
+                  />
                   <Button
                     variant="secondary"
                     disabled={busy}
@@ -652,7 +659,7 @@ export function TicketDetailPage() {
             </>
           ) : (
             <Button variant="secondary" onClick={() => setShowReassign(true)}>
-              📍 {t('manage.wrongWard')}
+              <MapPin size={16} /> {t('manage.wrongWard')}
             </Button>
           )}
         </Card>
@@ -755,20 +762,19 @@ export function TicketDetailPage() {
                           borderColor: 'var(--color-warn)',
                         }}
                       >
-                        ⚡ {t('comments.urgent')}
+                        <Zap size={13} className="mr-1 inline" />{t('comments.urgent')}
                       </span>
                     )}
                   </div>
                   {(comment.is_mine || isAuthority) && (
-                    <button
-                      type="button"
-                      className="hint"
-                      disabled={commentBusy}
-                      onClick={() => removeComment(comment.id)}
-                      aria-label={t('common.delete')}
-                    >
-                      ✕
-                    </button>
+                    <ConfirmDialog
+                      trigger={<button type="button" className="rounded-md p-1.5 text-ink-soft hover:bg-surface" disabled={commentBusy} aria-label={t('common.delete')}><X size={15} /></button>}
+                      title={t('common.delete')}
+                      description="This comment will be permanently removed from the public discussion."
+                      confirmLabel={t('common.delete')}
+                      destructive
+                      onConfirm={() => removeComment(comment.id)}
+                    />
                   )}
                 </div>
                 <p className="mt-1" style={{ fontSize: 'var(--step-sm)' }}>

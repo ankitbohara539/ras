@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { AlertTriangle, Camera, ClipboardList, LocateFixed, MapPin, Plus, X } from 'lucide-react'
 import { CivicStatusBadge } from '../../components/CivicStatusBadge'
 import { LocationMap } from '../../components/LocationMap'
 import { Button, Card, ErrorNote, Field, PageTitle, Spinner, SuccessNote } from '../../components/ui'
@@ -56,7 +57,8 @@ export function CivicReport() {
             className={`btn ${tab === key ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => setTab(key)}
           >
-            {key === 'new' ? `➕ ${t('civic.newTab')}` : `📋 ${t('civic.mineTab')}`}
+            {key === 'new' ? <Plus size={16} /> : <ClipboardList size={16} />}
+            {key === 'new' ? t('civic.newTab') : t('civic.mineTab')}
           </button>
         ))}
       </div>
@@ -81,7 +83,7 @@ export function CivicReport() {
             <p className="mt-1" style={{ fontSize: 'var(--step-sm)' }}>
               {complaint.description}
             </p>
-            {complaint.address_text && <p className="mt-1 hint">📍 {complaint.address_text}</p>}
+            {complaint.address_text && <p className="mt-1 flex items-center gap-1.5 hint"><MapPin size={14} />{complaint.address_text}</p>}
             {complaint.action_note && (
               <div className="mt-2 rounded-lg p-2" style={{ background: 'var(--color-canvas)' }}>
                 <p className="hint">{t('civic.officeSaid')}</p>
@@ -195,7 +197,7 @@ function NewComplaint({
     return (
       <Card>
         <SuccessNote>
-          ✅ {t('civic.filed')} <span className="font-mono font-bold">{filed.public_code}</span>
+          {t('civic.filed')} <span className="font-mono font-bold">{filed.public_code}</span>
         </SuccessNote>
         <p className="mt-2 hint">
           {t('civic.filedNote')}
@@ -203,7 +205,7 @@ function NewComplaint({
             ` ${t('auth.ward')} ${filed.ward_number}${filed.ward_name ? ` — ${filed.ward_name}` : ''}.`}
         </p>
         <Button className="mt-3" onClick={onFiled}>
-          📋 {t('civic.mineTab')}
+          <ClipboardList size={16} /> {t('civic.mineTab')}
         </Button>
       </Card>
     )
@@ -217,7 +219,7 @@ function NewComplaint({
         style={{ background: 'var(--color-warn-soft)', borderColor: 'var(--color-warn)' }}
       >
         <p className="font-semibold" style={{ color: 'var(--color-warn)' }}>
-          ⚠ {t('civic.rulesTitle')}
+          <AlertTriangle size={17} className="mr-1.5 inline" />{t('civic.rulesTitle')}
         </p>
         <ul className="mt-1 list-disc space-y-0.5 pl-5" style={{ fontSize: 'var(--step-sm)' }}>
           <li>{t('civic.rulePhotoAct')}</li>
@@ -236,7 +238,7 @@ function NewComplaint({
           {CIVIC_GROUPS.map((group) => (
             <fieldset key={group.key} className="rounded-lg border p-2" style={{ borderColor: 'var(--color-line)' }}>
               <legend className="px-1 font-semibold" style={{ fontSize: 'var(--step-sm)' }}>
-                {group.icon} {t(`civic.group.${group.key}` as never)}
+                <group.icon size={16} className="mr-1.5 inline" />{t(`civic.group.${group.key}` as never)}
               </legend>
               {group.categories.map((key) => (
                 <label key={key} className="flex items-center gap-2 py-1" style={{ fontSize: 'var(--step-sm)' }}>
@@ -311,7 +313,7 @@ function NewComplaint({
                 style={{ background: 'var(--color-danger)' }}
                 aria-label={`Remove photo ${index + 1}`}
               >
-                ×
+                <X size={15} />
               </button>
             </div>
           ))}
@@ -322,9 +324,7 @@ function NewComplaint({
               className="flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed"
               style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink-soft)' }}
             >
-              <span aria-hidden="true" style={{ fontSize: '1.5rem' }}>
-                📷
-              </span>
+              <Camera size={22} aria-hidden="true" />
               <span style={{ fontSize: '0.7rem' }}>{t('report.addPhoto')}</span>
             </button>
           )}
@@ -338,7 +338,7 @@ function NewComplaint({
             <LocationMap coords={geo.coords} accuracy={geo.source === 'gps' ? geo.accuracy : 0} onChange={setManual} />
             <p className="hint">{t('report.pinHint')}</p>
             <p style={{ fontSize: 'var(--step-sm)' }}>
-              📍 <span className="font-semibold">{place ?? '—'}</span>
+              <MapPin size={15} className="mr-1 inline" /> <span className="font-semibold">{place ?? '—'}</span>
               <br />
               <span className="font-mono hint">{formatCoords(geo.coords.latitude, geo.coords.longitude)}</span>
             </p>
@@ -352,7 +352,7 @@ function NewComplaint({
         ) : (
           <div className="space-y-2">
             <Button type="button" variant="secondary" onClick={locate} className="w-full" disabled={geo.kind === 'locating'}>
-              📍 {geo.kind === 'locating' ? t('report.locating') : t('report.useMyLocation')}
+              <LocateFixed size={16} /> {geo.kind === 'locating' ? t('report.locating') : t('report.useMyLocation')}
             </Button>
             {geo.kind === 'error' && (
               <>

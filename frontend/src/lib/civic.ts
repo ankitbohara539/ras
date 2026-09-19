@@ -1,15 +1,17 @@
 import type { CivicCategory, CivicStatus } from './types'
+import { Ban, CarFront, Trash2, Wrench } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
 /** The four groups the citizen picks from, each with its specific acts. */
-export const CIVIC_GROUPS: { key: string; icon: string; categories: CivicCategory[] }[] = [
-  { key: 'waste', icon: '🗑️', categories: ['littering', 'dumping_waste', 'burning_waste'] },
+export const CIVIC_GROUPS: { key: string; icon: LucideIcon; categories: CivicCategory[] }[] = [
+  { key: 'waste', icon: Trash2, categories: ['littering', 'dumping_waste', 'burning_waste'] },
   {
     key: 'nuisance',
-    icon: '🚯',
+    icon: Ban,
     categories: ['spitting', 'public_urination', 'smoking_in_public', 'noise'],
   },
-  { key: 'obstruction', icon: '🚗', categories: ['illegal_parking', 'footpath_encroachment'] },
-  { key: 'damage', icon: '🧱', categories: ['vandalism', 'pet_waste', 'other'] },
+  { key: 'obstruction', icon: CarFront, categories: ['illegal_parking', 'footpath_encroachment'] },
+  { key: 'damage', icon: Wrench, categories: ['vandalism', 'pet_waste', 'other'] },
 ]
 
 export const CIVIC_STATUSES: CivicStatus[] = [

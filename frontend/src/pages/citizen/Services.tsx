@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Phone } from 'lucide-react'
 import { Card, EmptyState, PageTitle, Spinner } from '../../components/ui'
 import { api } from '../../lib/api'
 import { formatDistance, useGeolocation } from '../../lib/geo'
@@ -129,7 +130,7 @@ export function Services() {
                     className="btn btn-primary"
                     aria-label={`${t('services.call')} ${pick(service.name_en, service.name_ne)} ${service.phone}`}
                   >
-                    📞 {service.phone}
+                    <Phone size={16} />{service.phone}
                   </a>
                 )}
               </div>

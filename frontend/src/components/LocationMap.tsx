@@ -70,7 +70,7 @@ export function LocationMap({
 
     const circle = L.circle([coords.latitude, coords.longitude], {
       radius: accuracy,
-      color: '#0d5c63',
+      color: '#087F75',
       weight: 1,
       fillOpacity: 0.08,
       interactive: false,

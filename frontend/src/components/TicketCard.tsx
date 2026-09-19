@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { Check, MapPin, Users } from 'lucide-react'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { prefetch } from '../lib/cache'
@@ -32,7 +33,7 @@ export function TicketCard({
   return (
     <Link
       to={`/tickets/${ticket.id}`}
-      className="card block p-4 transition hover:border-[var(--color-brand)]"
+      className="interactive-card card block p-4"
       onMouseEnter={warm}
       onFocus={warm}
       onTouchStart={warm}
@@ -53,7 +54,7 @@ export function TicketCard({
               borderColor: 'var(--color-good)',
             }}
           >
-            ✓ {t('ticket.communityVerified')}
+            <Check size={13} /> {t('ticket.communityVerified')}
           </span>
         )}
       </div>
@@ -72,8 +73,8 @@ export function TicketCard({
         <span>{relativeTime(ticket.created_at)}</span>
 
         {ticket.ward_number !== null && (
-          <span>
-            📍 {t('auth.ward')} {ticket.ward_number}
+          <span className="inline-flex items-center gap-1">
+            <MapPin size={13} /> {t('auth.ward')} {ticket.ward_number}
             {ticket.ward_name ? ` · ${ticket.ward_name}` : ''}
           </span>
         )}
@@ -83,13 +84,13 @@ export function TicketCard({
             className="font-semibold"
             style={{ color: 'var(--color-brand)' }}
           >
-            👥 {reporters} {t('ticket.reporters')}
+            <Users size={13} /> {reporters} {t('ticket.reporters')}
           </span>
         )}
 
         {ticket.corroboration_count > 0 && (
-          <span>
-            ✓ {ticket.corroboration_count} {t('ticket.confirmations')}
+          <span className="inline-flex items-center gap-1">
+            <Check size={13} /> {ticket.corroboration_count} {t('ticket.confirmations')}
           </span>
         )}
 

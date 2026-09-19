@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { AlertTriangle, Camera, LocateFixed, MapPin, Radio, X } from 'lucide-react'
 import { Button, Card, ErrorNote, Field } from '../../components/ui'
 import { LocationMap } from '../../components/LocationMap'
 import { api } from '../../lib/api'
@@ -179,7 +180,7 @@ export function ReportDraft({
               style={{ minHeight: 'auto', padding: '0.25rem 0.6rem' }}
               onClick={onRemove}
             >
-              ✕ {t('report.remove')}
+              <X size={15} /> {t('report.remove')}
             </Button>
           )}
         </div>
@@ -244,7 +245,7 @@ export function ReportDraft({
                   color: 'var(--color-warn)',
                 }}
               >
-                ⚠ {t('report.lowAccuracy')} (±{geo.accuracy}m)
+                <AlertTriangle size={15} className="mr-1 inline" />{t('report.lowAccuracy')} (±{geo.accuracy}m)
               </p>
             )}
 
@@ -253,7 +254,7 @@ export function ReportDraft({
               style={{ background: 'var(--color-good-soft)', fontSize: 'var(--step-sm)' }}
             >
               <div className="flex flex-wrap items-baseline gap-x-2">
-                <dt className="hint">📍 {t('report.placeName')}:</dt>
+                <dt className="inline-flex items-center gap-1 hint"><MapPin size={14} />{t('report.placeName')}:</dt>
                 <dd className="font-semibold">
                   {place ?? (placeLoading ? t('report.findingPlace') : '—')}
                 </dd>
@@ -279,7 +280,7 @@ export function ReportDraft({
               className="btn btn-ghost"
               style={{ minHeight: 'auto', padding: '0.25rem 0.6rem' }}
             >
-              📡 {geo.source === 'manual' ? t('report.backToGps') : t('common.retry')}
+              <Radio size={15} />{geo.source === 'manual' ? t('report.backToGps') : t('common.retry')}
             </button>
           </div>
         ) : (
@@ -291,7 +292,7 @@ export function ReportDraft({
               disabled={geo.kind === 'locating'}
               className="w-full"
             >
-              📍 {geo.kind === 'locating' ? t('report.locating') : t('report.useMyLocation')}
+              <LocateFixed size={16} />{geo.kind === 'locating' ? t('report.locating') : t('report.useMyLocation')}
             </Button>
             {geo.kind === 'error' && (
               <>
@@ -372,7 +373,7 @@ export function ReportDraft({
                 style={{ background: 'var(--color-danger)' }}
                 aria-label={`Remove photo ${photoIndex + 1}`}
               >
-                ×
+                <X size={15} />
               </button>
             </div>
           ))}
@@ -384,9 +385,7 @@ export function ReportDraft({
               className="flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed"
               style={{ borderColor: 'var(--color-line)', color: 'var(--color-ink-soft)' }}
             >
-              <span aria-hidden="true" style={{ fontSize: '1.5rem' }}>
-                📷
-              </span>
+              <Camera size={22} aria-hidden="true" />
               <span style={{ fontSize: '0.7rem' }}>{t('report.addPhoto')}</span>
             </button>
           )}

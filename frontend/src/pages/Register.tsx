@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Button, ErrorNote, Field, SuccessNote } from '../components/ui'
+import { MailCheck } from 'lucide-react'
+import { Button, ErrorNote, Field, PasswordInput, SuccessNote } from '../components/ui'
 import { ResendVerification } from '../components/ResendVerification'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -89,9 +90,7 @@ export function Register() {
     return (
       <AuthShell>
         <div className="card space-y-4 p-6">
-          <p aria-hidden="true" className="text-center" style={{ fontSize: '2.5rem' }}>
-            📧
-          </p>
+          <MailCheck aria-hidden="true" className="mx-auto size-10 text-brand" />
           <h2 className="text-center font-bold" style={{ fontSize: 'var(--step-lg)' }}>
             {t('auth.checkInbox')}
           </h2>
@@ -194,9 +193,7 @@ export function Register() {
           hint="At least 8 characters."
           required
         >
-          <input
-            type="password"
-            className="field"
+          <PasswordInput
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="new-password"

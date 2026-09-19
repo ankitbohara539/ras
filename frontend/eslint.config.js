@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
   // dev-dist holds the service worker vite-plugin-pwa generates in dev.
-  { ignores: ['dist', 'dev-dist'] },
+  { ignores: ['dist', 'dev-dist', '.next', 'test-results', 'playwright-report'] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['**/*.{ts,tsx}'],

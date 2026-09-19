@@ -1,20 +1,37 @@
-import { useEffect, useId, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { useEffect, useId, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react'
+import * as DialogPrimitive from '@radix-ui/react-dialog'
+import * as TooltipPrimitive from '@radix-ui/react-tooltip'
+import { Slot } from '@radix-ui/react-slot'
+import { cva, type VariantProps } from 'class-variance-authority'
+import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Eye, EyeOff, LoaderCircle, Volume2, VolumeX, X } from 'lucide-react'
 import { useI18n } from '../lib/i18n'
 import { usePrefs } from '../lib/prefs'
+import { cn } from '../lib/utils'
 import type { AlertSeverity, TicketPriority, TicketStatus } from '../lib/types'
 
-export function Button({
-  variant = 'primary',
-  className = '',
-  children,
-  ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: 'primary' | 'secondary' | 'danger' | 'ghost'
-}) {
+const buttonVariants = cva('btn', {
+  variants: {
+    variant: {
+      primary: 'btn-primary',
+      secondary: 'btn-secondary',
+      danger: 'btn-danger',
+      ghost: 'btn-ghost',
+    },
+    size: {
+      default: '',
+      sm: 'min-h-9 px-3',
+      icon: 'h-10 min-h-10 w-10 p-0',
+    },
+  },
+  defaultVariants: { variant: 'primary', size: 'default' },
+})
+
+export function Button({ variant, size, className, children, asChild = false, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & VariantProps<typeof buttonVariants> & { asChild?: boolean }) {
+  const Component = asChild ? Slot : 'button'
   return (
-    <button className={`btn btn-${variant} ${className}`} {...rest}>
+    <Component className={cn(buttonVariants({ variant, size }), className)} {...rest}>
       {children}
-    </button>
+    </Component>
   )
 }
 
@@ -25,7 +42,7 @@ export function Card({
   children: ReactNode
   className?: string
 }) {
-  return <div className={`card p-4 ${className}`}>{children}</div>
+  return <div className={cn('card p-4', className)}>{children}</div>
 }
 
 export function PageTitle({
@@ -63,10 +80,7 @@ export function Spinner({ label }: { label?: string }) {
       role="status"
       aria-live="polite"
     >
-      <span
-        className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
-        aria-hidden="true"
-      />
+      <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" />
       {label ?? t('common.loading')}
     </div>
   )
@@ -84,7 +98,7 @@ export function ErrorNote({ message }: { message: string }) {
         fontSize: 'var(--step-sm)',
       }}
     >
-      {message}
+      <AlertCircle className="mr-2 inline h-4 w-4" aria-hidden="true" />{message}
     </div>
   )
 }
@@ -101,7 +115,7 @@ export function SuccessNote({ children }: { children: ReactNode }) {
         fontSize: 'var(--step-sm)',
       }}
     >
-      {children}
+      <CheckCircle2 className="mr-2 inline h-4 w-4" aria-hidden="true" />{children}
     </div>
   )
 }
@@ -218,7 +232,7 @@ export function SpeakButton({ text }: { text: string }) {
         aria-label={speaking ? t('a11y.stop') : t('a11y.listen')}
         aria-pressed={speaking}
       >
-        <span aria-hidden="true">{speaking ? '⏹' : '\u{1F50A}'}</span>
+        {speaking ? <VolumeX size={16} aria-hidden="true" /> : <Volume2 size={16} aria-hidden="true" />}
         <span style={{ fontSize: 'var(--step-xs)' }}>
           {speaking ? t('a11y.stop') : t('a11y.listen')}
         </span>
@@ -230,6 +244,90 @@ export function SpeakButton({ text }: { text: string }) {
       )}
     </span>
   )
+}
+
+export function Skeleton({ className = '' }: { className?: string }) {
+  return <div aria-hidden="true" className={cn('animate-pulse rounded-lg bg-mint/25', className)} />
+}
+
+export function DashboardSkeleton() {
+  return <div role="status" aria-label="Loading dashboard" className="space-y-5">
+    <span className="sr-only">Loading dashboard</span>
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-28" />)}</div>
+    <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]"><Skeleton className="h-80" /><Skeleton className="h-80" /></div>
+  </div>
+}
+
+export function Pagination({
+  page,
+  totalPages,
+  onPageChange,
+}: {
+  page: number
+  totalPages: number
+  onPageChange: (page: number) => void
+}) {
+  const { language } = useI18n()
+  if (totalPages <= 1) return null
+  const label = language === 'ne' ? `पृष्ठ ${page + 1} / ${totalPages}` : `Page ${page + 1} of ${totalPages}`
+  return (
+    <nav className="mt-5 flex items-center justify-center gap-3" aria-label={language === 'ne' ? 'पृष्ठहरू' : 'Pagination'}>
+      <Button type="button" variant="secondary" size="icon" disabled={page === 0} onClick={() => onPageChange(page - 1)} aria-label={language === 'ne' ? 'अघिल्लो पृष्ठ' : 'Previous page'}>
+        <ChevronLeft size={18} />
+      </Button>
+      <span className="min-w-28 text-center text-sm font-medium tabular-nums">{label}</span>
+      <Button type="button" variant="secondary" size="icon" disabled={page >= totalPages - 1} onClick={() => onPageChange(page + 1)} aria-label={language === 'ne' ? 'अर्को पृष्ठ' : 'Next page'}>
+        <ChevronRight size={18} />
+      </Button>
+    </nav>
+  )
+}
+
+export function PasswordInput({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
+  const [visible, setVisible] = useState(false)
+  const { language } = useI18n()
+  const label = visible
+    ? language === 'ne' ? 'पासवर्ड लुकाउनुहोस्' : 'Hide password'
+    : language === 'ne' ? 'पासवर्ड देखाउनुहोस्' : 'Show password'
+  return <span className="relative block">
+    <input {...props} type={visible ? 'text' : 'password'} className={cn('field pr-12', className)} />
+    <button type="button" className="absolute right-1 top-1 flex h-10 w-10 items-center justify-center rounded-md text-ink-soft transition hover:bg-brand-soft hover:text-ink" onClick={() => setVisible(value => !value)} aria-label={label} aria-pressed={visible}>
+      {visible ? <EyeOff size={18} /> : <Eye size={18} />}
+    </button>
+  </span>
+}
+
+export function Tooltip({ content, children }: { content: ReactNode; children: ReactNode }) {
+  return <TooltipPrimitive.Root>
+    <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
+    <TooltipPrimitive.Portal>
+      <TooltipPrimitive.Content sideOffset={7} className="z-[80] rounded-md bg-navy px-2.5 py-1.5 text-xs text-white shadow-lg">
+        {content}<TooltipPrimitive.Arrow className="fill-navy" />
+      </TooltipPrimitive.Content>
+    </TooltipPrimitive.Portal>
+  </TooltipPrimitive.Root>
+}
+
+export const TooltipProvider = TooltipPrimitive.Provider
+
+export function ConfirmDialog({ trigger, title, description, confirmLabel, onConfirm, destructive = false }: { trigger: ReactNode; title: string; description: string; confirmLabel: string; onConfirm: () => void | Promise<void>; destructive?: boolean }) {
+  const { t } = useI18n()
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const confirm = async () => {
+    setBusy(true)
+    try { await onConfirm(); setOpen(false) } finally { setBusy(false) }
+  }
+  return <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
+    <DialogPrimitive.Trigger asChild>{trigger}</DialogPrimitive.Trigger>
+    <DialogPrimitive.Portal>
+      <DialogPrimitive.Overlay className="fixed inset-0 z-[70] bg-navy/45 backdrop-blur-[2px]" />
+      <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-[71] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-line bg-surface p-6 shadow-2xl focus:outline-none">
+        <div className="flex items-start justify-between gap-4"><div><DialogPrimitive.Title className="text-lg font-semibold">{title}</DialogPrimitive.Title><DialogPrimitive.Description className="mt-2 text-sm text-ink-soft">{description}</DialogPrimitive.Description></div><DialogPrimitive.Close className="rounded-md p-1.5 text-ink-soft hover:bg-canvas" aria-label={t('common.cancel')}><X size={18} /></DialogPrimitive.Close></div>
+        <div className="mt-6 flex justify-end gap-2"><DialogPrimitive.Close className="btn btn-secondary">{t('common.cancel')}</DialogPrimitive.Close><Button type="button" variant={destructive ? 'danger' : 'primary'} disabled={busy} onClick={() => void confirm()}>{busy && <LoaderCircle size={16} className="animate-spin" />}{confirmLabel}</Button></div>
+      </DialogPrimitive.Content>
+    </DialogPrimitive.Portal>
+  </DialogPrimitive.Root>
 }
 
 export function Field({
@@ -264,10 +362,14 @@ export function Stat({
   label,
   value,
   tone = 'ink',
+  icon,
+  className,
 }: {
   label: string
   value: number | string
   tone?: 'ink' | 'warn' | 'danger' | 'good'
+  icon?: ReactNode
+  className?: string
 }) {
   const colors = {
     ink: 'var(--color-ink)',
@@ -277,14 +379,25 @@ export function Stat({
   }
 
   return (
-    <div className="card p-4">
+    <div className={cn('dashboard-stat card p-5', className)}>
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm font-medium text-ink-soft">{label}</p>
+        {icon && (
+          <span
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-soft"
+            style={{ color: colors[tone] }}
+            aria-hidden="true"
+          >
+            {icon}
+          </span>
+        )}
+      </div>
       <p
-        className="font-bold tabular-nums"
+        className="mt-3 font-semibold tabular-nums tracking-tight"
         style={{ fontSize: 'var(--step-2xl)', color: colors[tone], lineHeight: 1.1 }}
       >
         {value}
       </p>
-      <p className="mt-1 hint">{label}</p>
     </div>
   )
 }

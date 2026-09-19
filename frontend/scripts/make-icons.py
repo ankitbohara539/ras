@@ -2,8 +2,8 @@
 
     python scripts/make-icons.py
 
-Drawn rather than hand-designed so the set is reproducible and consistent.
-Replace public/icon-*.png with real artwork whenever there is any.
+Generated from the official companion mark in the project logo bundle so the
+installed app, browser tabs and application UI all use the same identity.
 
 The maskable variant matters: Android crops icons to whatever shape the
 launcher uses, so the glyph sits inside the safe zone (the middle 80%) with
@@ -15,52 +15,25 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
-BRAND = (13, 92, 99)
-BRAND_DARK = (8, 63, 68)
-INK = (255, 255, 255)
+NAVY = (29, 41, 61)
 
-PUBLIC = Path(__file__).resolve().parent.parent / "public"
-
-FONT_CANDIDATES = [
-    r"C:\Windows\Fonts\Nirmala.ttf",       # Devanagari on Windows
-    r"C:\Windows\Fonts\mangal.ttf",
-    "/usr/share/fonts/truetype/lohit-devanagari/Lohit-Devanagari.ttf",
-    "/System/Library/Fonts/Supplemental/Kohinoor.ttc",
-]
-
-
-def load_font(size: int) -> ImageFont.FreeTypeFont:
-    for path in FONT_CANDIDATES:
-        if Path(path).exists():
-            try:
-                return ImageFont.truetype(path, size)
-            except OSError:
-                continue
-    return ImageFont.load_default()
+FRONTEND = Path(__file__).resolve().parent.parent
+PUBLIC = FRONTEND / "public"
+MARK = FRONTEND / "assets" / "Icon" / "Companions" / "Open path@4x-1.png"
 
 
 def draw_icon(size: int, maskable: bool = False) -> Image.Image:
-    image = Image.new("RGBA", (size, size), BRAND + (255,))
-    draw = ImageDraw.Draw(image)
-
-    # Subtle depth so the icon does not read as a flat square.
-    draw.ellipse(
-        [-size * 0.25, size * 0.45, size * 0.75, size * 1.45],
-        fill=BRAND_DARK + (255,),
-    )
-
-    # A maskable icon must keep its glyph inside the middle 80%.
-    glyph_ratio = 0.46 if maskable else 0.60
-    font = load_font(int(size * glyph_ratio))
-
-    glyph = "\u0938"  # स -- Sahayatri
-    box = draw.textbbox((0, 0), glyph, font=font)
-    x = (size - (box[2] - box[0])) / 2 - box[0]
-    y = (size - (box[3] - box[1])) / 2 - box[1]
-    draw.text((x, y), glyph, font=font, fill=INK + (255,))
-
+    image = Image.new("RGBA", (size, size), NAVY + (255,))
+    mark = Image.open(MARK).convert("RGBA")
+    # Maskable launchers may crop to a circle or squircle, so keep the mark in
+    # the central safe zone. Standard icons can use a little more of the tile.
+    mark_size = int(size * (0.58 if maskable else 0.68))
+    mark.thumbnail((mark_size, mark_size), Image.Resampling.LANCZOS)
+    x = (size - mark.width) // 2
+    y = (size - mark.height) // 2
+    image.alpha_composite(mark, (x, y))
     return image
 
 

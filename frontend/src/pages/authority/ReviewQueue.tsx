@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
 import {
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   ErrorNote,
   PageTitle,
@@ -125,8 +128,11 @@ export function ReviewQueue() {
     try {
       await action()
       await load()
+      toast.success(t('common.success'))
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('common.error'))
+      const message = err instanceof Error ? err.message : t('common.error')
+      setError(message)
+      toast.error(message)
     } finally {
       setBusy(null)
     }
@@ -188,19 +194,13 @@ export function ReviewQueue() {
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                <Button
-                  disabled={busy === candidate.id}
-                  onClick={() =>
-                    act(candidate.id, () =>
-                      api.mergeTicket(
-                        candidate.ticket_id,
-                        candidate.candidate_ticket_id,
-                      ),
-                    )
-                  }
-                >
-                  🔗 {t('review.merge')}
-                </Button>
+                <ConfirmDialog
+                  trigger={<Button disabled={busy === candidate.id}><Link2 size={16} />{t('review.merge')}</Button>}
+                  title={t('review.merge')}
+                  description="This will combine both reports into one public ticket and notify its reporters."
+                  confirmLabel={t('review.merge')}
+                  onConfirm={() => act(candidate.id, () => api.mergeTicket(candidate.ticket_id, candidate.candidate_ticket_id))}
+                />
                 <Button
                   variant="secondary"
                   disabled={busy === candidate.id}

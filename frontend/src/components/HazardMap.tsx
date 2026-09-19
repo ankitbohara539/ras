@@ -126,7 +126,7 @@ export function HazardMap({
 
       const label = language === 'ne' ? meta.label[1] : meta.label[0]
       const details = [
-        `<strong>${meta.icon} ${escapeHtml(label)}</strong>`,
+        `<strong>${escapeHtml(label)}</strong>`,
         escapeHtml(hazard.title),
         hazard.source === 'ticket'
           ? `${hazard.reports} report(s)${hazard.confirmations ? `, ${hazard.confirmations} confirmed` : ''}`
@@ -139,7 +139,7 @@ export function HazardMap({
       L.marker([hazard.latitude, hazard.longitude], {
         icon: L.divIcon({
           className: 'hazard-icon',
-          html: `<span style="border-color:${color};opacity:${dimmed ? 0.55 : 1}">${meta.icon}</span>`,
+          html: `<span style="border-color:${color};opacity:${dimmed ? 0.55 : 1}" aria-hidden="true">${escapeHtml(meta.marker)}</span>`,
           iconSize: [28, 28],
           iconAnchor: [14, 14],
         }),
@@ -161,7 +161,7 @@ export function HazardMap({
 
     const fastestRecommended = plan.recommended === 'fastest'
     const fastest = L.polyline(plan.fastest.line, {
-      color: fastestRecommended ? '#1b7f3b' : '#6d7a8a',
+      color: fastestRecommended ? '#087F75' : '#526176',
       weight: fastestRecommended ? 6 : 4,
       dashArray: fastestRecommended ? undefined : '8 8',
       opacity: 0.9,
@@ -170,7 +170,7 @@ export function HazardMap({
     let bounds = fastest.getBounds()
     if (plan.safer) {
       const safer = L.polyline(plan.safer.line, {
-        color: '#1b7f3b',
+        color: '#087F75',
         weight: 6,
         opacity: 0.95,
       }).addTo(layer)
@@ -185,7 +185,7 @@ export function HazardMap({
     if (!layer) return
     layer.clearLayers()
     if (start) {
-      L.marker([start.latitude, start.longitude], { icon: endpointIcon('A', '#0d5c63') }).addTo(layer)
+      L.marker([start.latitude, start.longitude], { icon: endpointIcon('A', '#1D293D') }).addTo(layer)
     }
     if (end) {
       L.marker([end.latitude, end.longitude], { icon: endpointIcon('B', '#c62828') }).addTo(layer)

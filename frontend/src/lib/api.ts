@@ -38,7 +38,13 @@ import { invalidateAll } from './cache'
 // POSTs that read rather than change anything: they must not drop the cache.
 const READ_ONLY_POSTS = [/^\/auth\//, /^\/hazards\/route$/]
 
-const API_URL = import.meta.env.VITE_API_URL?.replace(/\/$/, '') ?? ''
+// Production on Vercel uses a same-origin /api rewrite. Keeping this as an
+// explicit switch means an old VITE_API_URL in the Vercel dashboard cannot
+// accidentally bypass the proxy and reintroduce CORS failures.
+const API_URL =
+  import.meta.env.VITE_USE_API_PROXY === 'true'
+    ? ''
+    : (import.meta.env.VITE_API_URL?.replace(/\/$/, '') ?? '')
 const TOKEN_KEY = 'sahayatri.access_token'
 
 export function getToken(): string | null {
