@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Check, Link2, LocateFixed, LockKeyhole, MapPin, Users, X, Zap } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   Button,
   Card,
+  ConfirmDialog,
   ErrorNote,
   Field,
   PriorityBadge,
@@ -11,9 +14,17 @@ import {
   StatusBadge,
   SuccessNote,
 } from '../components/ui'
+import { LocationMap } from '../components/LocationMap'
 import { api } from '../lib/api'
+import { useQuery } from '../lib/cache'
 import { useAuth } from '../lib/auth'
-import { formatDate, formatDistance, useGeolocation } from '../lib/geo'
+import {
+  formatCoords,
+  formatDate,
+  formatDistance,
+  mapsLink,
+  useGeolocation,
+} from '../lib/geo'
 import { useI18n } from '../lib/i18n'
 import type { TicketComment, TicketDetail as Ticket, TicketStatus, Ward } from '../lib/types'
 
@@ -56,8 +67,6 @@ export function TicketDetailPage() {
   const navigate = useNavigate()
   const { state: geo, locate } = useGeolocation()
 
-  const [ticket, setTicket] = useState<Ticket | null>(null)
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -66,40 +75,32 @@ export function TicketDetailPage() {
   const [priorityNote, setPriorityNote] = useState('')
   const [showReassign, setShowReassign] = useState(false)
 
-  const [comments, setComments] = useState<TicketComment[]>([])
   const [commentDraft, setCommentDraft] = useState('')
   const [commentBusy, setCommentBusy] = useState(false)
   const [commentError, setCommentError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    if (!id) return
-    try {
-      setTicket(await api.ticket(id))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('common.error'))
-    } finally {
-      setLoading(false)
-    }
-  }, [id, t])
+  // Through the shared cache: a ticket opened from a list (prefetched on
+  // hover or touch) paints at once and is refreshed straight away. Keyed per
+  // viewer because an officer's copy carries duplicate suggestions a
+  // citizen's does not.
+  const ticketQuery = useQuery(id && profile ? `ticket:${id}:${profile.id}` : null, () =>
+    api.ticket(id!),
+  )
+  const commentsQuery = useQuery(id && profile ? `comments:${id}:${profile.id}` : null, () =>
+    api.comments(id!),
+  )
+  const ticket: Ticket | null = ticketQuery.data ?? null
+  const loading = ticketQuery.loading
+  // The ticket load already surfaces a permission error; a failed thread
+  // just shows as empty rather than a second error banner.
+  const comments: TicketComment[] = commentsQuery.data?.items ?? []
+  const loadError =
+    ticketQuery.error instanceof Error ? ticketQuery.error.message : null
 
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  const loadComments = useCallback(async () => {
-    if (!id) return
-    try {
-      const result = await api.comments(id)
-      setComments(result.items)
-    } catch {
-      // The ticket load already surfaces a permission error; failing quietly
-      // here just means an empty thread instead of a second error banner.
-    }
-  }, [id])
-
-  useEffect(() => {
-    void loadComments()
-  }, [loadComments])
+  // After an action: wait for the fresh copy before clearing the busy state.
+  // (The write itself already invalidated the cache.)
+  const load = ticketQuery.refetch
+  const loadComments = commentsQuery.refetch
 
   const submitComment = async () => {
     if (!id || !commentDraft.trim()) return
@@ -108,9 +109,13 @@ export function TicketDetailPage() {
     try {
       await api.postComment(id, commentDraft.trim())
       setCommentDraft('')
-      await loadComments()
+      // An urgent comment can raise the priority; show it without a refresh.
+      await Promise.all([loadComments(), load()])
+      toast.success(t('common.success'))
     } catch (err) {
-      setCommentError(err instanceof Error ? err.message : t('common.error'))
+      const message = err instanceof Error ? err.message : t('common.error')
+      setCommentError(message)
+      toast.error(message)
     } finally {
       setCommentBusy(false)
     }
@@ -121,9 +126,12 @@ export function TicketDetailPage() {
     setCommentBusy(true)
     try {
       await api.deleteComment(id, commentId)
-      await loadComments()
+      await Promise.all([loadComments(), load()])
+      toast.success(t('common.success'))
     } catch (err) {
-      setCommentError(err instanceof Error ? err.message : t('common.error'))
+      const message = err instanceof Error ? err.message : t('common.error')
+      setCommentError(message)
+      toast.error(message)
     } finally {
       setCommentBusy(false)
     }
@@ -145,15 +153,18 @@ export function TicketDetailPage() {
       await action()
       if (successMessage) setMessage(successMessage)
       await load()
+      toast.success(successMessage ?? t('common.success'))
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('common.error'))
+      const message = err instanceof Error ? err.message : t('common.error')
+      setError(message)
+      toast.error(message)
     } finally {
       setBusy(false)
     }
   }
 
   if (loading) return <Spinner />
-  if (!ticket) return <ErrorNote message={error ?? t('common.error')} />
+  if (!ticket) return <ErrorNote message={error ?? loadError ?? t('common.error')} />
 
   const isMine = ticket.reporter_id === profile?.id
   const reporters = ticket.child_count + 1
@@ -190,7 +201,7 @@ export function TicketDetailPage() {
           {isAuthority && <PriorityBadge priority={ticket.priority} />}
           {isAuthority && ticket.priority_locked && (
             <span className="chip" title={t('priority.lockedHint')}>
-              🔒 {t('priority.manual')}
+              <LockKeyhole size={13} /> {t('priority.manual')}
             </span>
           )}
           {ticket.community_verified && (
@@ -202,7 +213,7 @@ export function TicketDetailPage() {
                 borderColor: 'var(--color-good)',
               }}
             >
-              ✓ {t('ticket.communityVerified')}
+              <Check size={13} /> {t('ticket.communityVerified')}
             </span>
           )}
           <div className="ml-auto">
@@ -222,10 +233,23 @@ export function TicketDetailPage() {
             <dt className="hint">{t('ticket.reportedBy')}</dt>
             <dd className="font-medium">{ticket.reporter_name ?? '—'}</dd>
           </div>
-          <div>
+          <div className="sm:col-span-2">
             <dt className="hint">{t('report.location')}</dt>
-            <dd className="font-medium">
-              {ticket.address_text ?? `${ticket.latitude.toFixed(5)}, ${ticket.longitude.toFixed(5)}`}
+            {ticket.address_text && (
+              <dd className="inline-flex items-center gap-1 font-medium"><MapPin size={14} />{ticket.address_text}</dd>
+            )}
+            <dd className="font-mono" style={{ fontSize: 'var(--step-xs)' }}>
+              {formatCoords(ticket.latitude, ticket.longitude)}
+              {' · '}
+              <a
+                href={mapsLink(ticket.latitude, ticket.longitude)}
+                target="_blank"
+                rel="noreferrer"
+                className="underline"
+                style={{ color: 'var(--color-brand)' }}
+              >
+                {t('ticket.openInMaps')} ↗
+              </a>
             </dd>
           </div>
           <div>
@@ -239,18 +263,33 @@ export function TicketDetailPage() {
           {reporters > 1 && (
             <div>
               <dt className="hint">{t('ticket.reporters')}</dt>
-              <dd className="font-bold" style={{ color: 'var(--color-brand)' }}>
-                👥 {reporters}
+              <dd className="flex items-center gap-1 font-bold" style={{ color: 'var(--color-brand)' }}>
+                <Users size={15} /> {reporters}
               </dd>
             </div>
           )}
           {ticket.corroboration_count > 0 && (
             <div>
               <dt className="hint">{t('ticket.confirmations')}</dt>
-              <dd className="font-medium">✓ {ticket.corroboration_count}</dd>
+              <dd className="flex items-center gap-1 font-medium"><Check size={14} />{ticket.corroboration_count}</dd>
+            </div>
+          )}
+          {ticket.urgent_commenter_count > 0 && (
+            <div>
+              <dt className="hint">{t('comments.urgent')}</dt>
+              <dd className="font-medium" style={{ color: 'var(--color-warn)' }}>
+                <Zap size={14} className="mr-1 inline" />{ticket.urgent_commenter_count} {t('comments.urgentCount')}
+              </dd>
             </div>
           )}
         </dl>
+
+        <div className="mt-4">
+          <LocationMap
+            coords={{ latitude: ticket.latitude, longitude: ticket.longitude }}
+            height={200}
+          />
+        </div>
 
         {ticket.photos.length > 0 && (
           <div className="mt-4">
@@ -321,7 +360,7 @@ export function TicketDetailPage() {
                   )
                 }
               >
-                ✓ {t('corroborate.yes')}
+                <Check size={16} /> {t('corroborate.yes')}
               </Button>
               <Button
                 variant="secondary"
@@ -338,12 +377,12 @@ export function TicketDetailPage() {
                   )
                 }
               >
-                ✕ {t('corroborate.no')}
+                <X size={16} /> {t('corroborate.no')}
               </Button>
             </div>
           ) : (
             <Button variant="secondary" onClick={locate} className="mt-3 w-full">
-              📍 {geo.kind === 'locating' ? t('report.locating') : t('report.useMyLocation')}
+              <LocateFixed size={16} /> {geo.kind === 'locating' ? t('report.locating') : t('report.useMyLocation')}
             </Button>
           )}
 
@@ -361,7 +400,8 @@ export function TicketDetailPage() {
         </SuccessNote>
       )}
 
-      {/* Authority: the merge review. Suggestions only, never auto-applied. */}
+      {/* Authority: the merge review. Matches of 80% or more were already
+          merged on submission; what is left here is for a human to judge. */}
       {isAuthority && ticket.duplicate_candidates.length > 0 && (
         <Card>
           <h2 className="font-bold" style={{ fontSize: 'var(--step-md)' }}>
@@ -414,18 +454,13 @@ export function TicketDetailPage() {
                 </div>
 
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button
-                    disabled={busy}
-                    onClick={() =>
-                      act(
-                        () =>
-                          api.mergeTicket(ticket.id, candidate.candidate_ticket_id),
-                        'Merged.',
-                      )
-                    }
-                  >
-                    🔗 {t('review.merge')}
-                  </Button>
+                  <ConfirmDialog
+                    trigger={<Button disabled={busy}><Link2 size={16} />{t('review.merge')}</Button>}
+                    title={t('review.merge')}
+                    description="This will combine both reports into one public ticket and notify its reporters."
+                    confirmLabel={t('review.merge')}
+                    onConfirm={() => act(() => api.mergeTicket(ticket.id, candidate.candidate_ticket_id), 'Merged.')}
+                  />
                   <Button
                     variant="secondary"
                     disabled={busy}
@@ -624,7 +659,7 @@ export function TicketDetailPage() {
             </>
           ) : (
             <Button variant="secondary" onClick={() => setShowReassign(true)}>
-              📍 {t('manage.wrongWard')}
+              <MapPin size={16} /> {t('manage.wrongWard')}
             </Button>
           )}
         </Card>
@@ -715,17 +750,31 @@ export function TicketDetailPage() {
                         {t(`comments.role.${comment.author_role}` as never)}
                       </span>
                     )}
+                    {comment.is_urgent && comment.author_role === 'citizen' && (
+                      <span
+                        className="chip ml-2"
+                        title={t('comments.urgentHint')}
+                        style={{
+                          fontSize: 'var(--step-xs)',
+                          padding: '0.05rem 0.5rem',
+                          background: 'var(--color-warn-soft)',
+                          color: 'var(--color-warn)',
+                          borderColor: 'var(--color-warn)',
+                        }}
+                      >
+                        <Zap size={13} className="mr-1 inline" />{t('comments.urgent')}
+                      </span>
+                    )}
                   </div>
                   {(comment.is_mine || isAuthority) && (
-                    <button
-                      type="button"
-                      className="hint"
-                      disabled={commentBusy}
-                      onClick={() => removeComment(comment.id)}
-                      aria-label={t('common.delete')}
-                    >
-                      ✕
-                    </button>
+                    <ConfirmDialog
+                      trigger={<button type="button" className="rounded-md p-1.5 text-ink-soft hover:bg-surface" disabled={commentBusy} aria-label={t('common.delete')}><X size={15} /></button>}
+                      title={t('common.delete')}
+                      description="This comment will be permanently removed from the public discussion."
+                      confirmLabel={t('common.delete')}
+                      destructive
+                      onConfirm={() => removeComment(comment.id)}
+                    />
                   )}
                 </div>
                 <p className="mt-1" style={{ fontSize: 'var(--step-sm)' }}>
@@ -738,6 +787,7 @@ export function TicketDetailPage() {
         )}
 
         <div className="mt-4">
+          <p className="hint mb-2">{t('comments.urgentHint')}</p>
           <Field label={t('comments.addLabel')}>
             <textarea
               className="field"

@@ -1,15 +1,24 @@
 import type {
   Alert,
   Category,
+  CivicComplaint,
+  CivicComplaintList,
+  CivicCategory,
   CivicService,
+  CivicStatus,
+  DashboardSummary,
   Coords,
   DuplicateCandidate,
+  Hazard,
   MunicipalityDetail,
   Municipality,
   NotificationList,
+  PlaceResult,
   Profile,
   ProfileList,
   PublicStats,
+  ReverseGeocode,
+  RoutePlan,
   ServiceType,
   SosCreateResponse,
   SosRequest,
@@ -21,10 +30,22 @@ import type {
   TicketPriority,
   TicketStatus,
   TokenResponse,
+  TravelMode,
   Ward,
 } from './types'
 
-const API_URL = import.meta.env.VITE_API_URL?.replace(/\/$/, '') ?? ''
+import { invalidateAll } from './cache'
+
+// POSTs that read rather than change anything: they must not drop the cache.
+const READ_ONLY_POSTS = [/^\/auth\//, /^\/hazards\/route$/]
+
+// Production on Vercel uses a same-origin /api rewrite. Keeping this as an
+// explicit switch means an old VITE_API_URL in the Vercel dashboard cannot
+// accidentally bypass the proxy and reintroduce CORS failures.
+const API_URL =
+  import.meta.env.VITE_USE_API_PROXY === 'true'
+    ? ''
+    : (import.meta.env.VITE_API_URL?.replace(/\/$/, '') ?? '')
 const TOKEN_KEY = 'sahayatri.access_token'
 
 export function getToken(): string | null {
@@ -80,11 +101,25 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   if (response.status === 204) return undefined as T
 
   const text = await response.text()
-  const payload = text ? JSON.parse(text) : null
+
+  // A crash (500) or a dead dev proxy answers with plain text, not JSON.
+  // Parsing that blindly surfaces "JSON.parse: unexpected character", which
+  // hides the real problem -- report the status instead.
+  let payload: unknown = null
+  try {
+    payload = text ? JSON.parse(text) : null
+  } catch {
+    throw new ApiError(
+      response.status,
+      response.ok
+        ? 'The server sent a response the app could not read.'
+        : `Server error (${response.status}). Check the backend logs.`,
+    )
+  }
 
   if (!response.ok) {
     // FastAPI sends `detail` as a string, or an array for validation errors.
-    const detail = payload?.detail
+    const detail = (payload as { detail?: unknown } | null)?.detail
     let message = 'Something went wrong.'
     if (typeof detail === 'string') message = detail
     else if (Array.isArray(detail) && detail.length > 0) {
@@ -98,7 +133,68 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     throw new ApiError(response.status, message)
   }
 
+  // A successful write may have changed anything a cached read shows (a
+  // comment moves priority, marking read changes the badge), so every cached
+  // read is dropped. Cheap, and it makes stale-after-my-own-change impossible.
+  if (method !== 'GET' && !READ_ONLY_POSTS.some((pattern) => pattern.test(path))) {
+    invalidateAll()
+  }
+
   return payload as T
+}
+
+export type SummaryStreamEvent =
+  | { type: 'meta'; summary: DashboardSummary }
+  | { type: 'delta'; text: string }
+  | { type: 'reset' }
+  | { type: 'done'; summary: DashboardSummary }
+
+/**
+ * The dashboard briefing, delivered live: one event per line of the
+ * response as the model writes it. `refresh` regenerates instead of
+ * replaying the cached answer; the backend rate-limits that to once a
+ * minute per person and answers 429 (as an ApiError) before streaming.
+ */
+export async function streamDashboardSummary(
+  refresh: boolean,
+  language: string,
+  onEvent: (event: SummaryStreamEvent) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const headers: Record<string, string> = {}
+  const token = getToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  const response = await fetch(
+    `${API_URL}/api/users/me/summary/stream${query({ refresh: refresh || undefined, lang: language })}`,
+    { headers, signal },
+  )
+  if (!response.ok || !response.body) {
+    let message = `Server error (${response.status}).`
+    try {
+      const payload = (await response.json()) as { detail?: unknown }
+      if (typeof payload.detail === 'string') message = payload.detail
+    } catch {
+      // Not JSON -- keep the status message.
+    }
+    throw new ApiError(response.status, message)
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { value, done } = await reader.read()
+    buffer += decoder.decode(value, { stream: !done })
+    let newline
+    while ((newline = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, newline).trim()
+      buffer = buffer.slice(newline + 1)
+      if (line) onEvent(JSON.parse(line) as SummaryStreamEvent)
+    }
+    if (done) break
+  }
+  if (buffer.trim()) onEvent(JSON.parse(buffer) as SummaryStreamEvent)
 }
 
 function query(params: Record<string, unknown>): string {
@@ -120,6 +216,13 @@ export const api = {
       auth: false,
     }),
 
+  resendVerification: (email: string) =>
+    request<{ message: string }>('/auth/resend-verification', {
+      method: 'POST',
+      body: { email },
+      auth: false,
+    }),
+
   register: (payload: {
     email: string
     password: string
@@ -130,7 +233,12 @@ export const api = {
     municipality_id?: string
     preferred_language?: 'en' | 'ne'
   }) =>
-    request<{ profile: Profile; requires_approval: boolean; message: string }>(
+    request<{
+      profile: Profile
+      requires_approval: boolean
+      requires_verification: boolean
+      message: string
+    }>(
       '/auth/register',
       { method: 'POST', body: payload, auth: false },
     ),
@@ -151,6 +259,9 @@ export const api = {
   nearestWard: (coords: Coords) =>
     request<Ward>(`/wards/nearest${query({ ...coords })}`, { auth: false }),
 
+  reverseGeocode: (coords: Coords, lang: 'en' | 'ne') =>
+    request<ReverseGeocode>(`/geo/reverse${query({ ...coords, lang })}`),
+
   services: (params: {
     service_type?: ServiceType
     emergency_only?: boolean
@@ -159,6 +270,43 @@ export const api = {
     longitude?: number
     radius_m?: number
   }) => request<CivicService[]>(`/services${query(params)}`, { auth: false }),
+
+  // -- hazard map ------------------------------------------------------
+  hazards: (box: { min_lat: number; min_lon: number; max_lat: number; max_lon: number }, night?: boolean) =>
+    request<{ items: Hazard[]; night: boolean }>(`/hazards${query({ ...box, night })}`),
+
+  planRoute: (payload: { start: Coords; end: Coords; mode: TravelMode; night?: boolean }) =>
+    request<RoutePlan>('/hazards/route', { method: 'POST', body: payload }),
+
+  searchPlaces: (q: string, lang: 'en' | 'ne') =>
+    request<PlaceResult[]>(`/geo/search${query({ q, lang })}`),
+
+  // -- civic-sense complaints (private: reporter, ward office, admin) --
+  fileCivicComplaint: (
+    payload: {
+      category: CivicCategory
+      description: string
+      latitude: number
+      longitude: number
+      address_text?: string
+      occurred_at?: string
+    },
+    photos: File[],
+  ) => {
+    const form = new FormData()
+    form.append('payload', JSON.stringify(payload))
+    for (const photo of photos) form.append('photos', photo)
+    return request<CivicComplaint>('/civic', { method: 'POST', formData: form })
+  },
+
+  civicComplaints: (params: { status?: CivicStatus; category?: CivicCategory; limit?: number } = {}) =>
+    request<CivicComplaintList>(`/civic${query(params)}`),
+
+  updateCivicStatus: (id: string, status: CivicStatus, note?: string) =>
+    request<CivicComplaint>(`/civic/${id}/status`, {
+      method: 'PATCH',
+      body: { status, note },
+    }),
 
   // -- tickets -------------------------------------------------------
   createTicket: (
@@ -291,8 +439,12 @@ export const api = {
   notifications: (unread_only = false) =>
     request<NotificationList>(`/notifications${query({ unread_only })}`),
 
-  markNotificationsRead: () =>
-    request<NotificationList>('/notifications/read', { method: 'POST' }),
+  markNotificationsRead: (ids?: string[]) =>
+    request<NotificationList>('/notifications/read', {
+      method: 'POST',
+      // No body = mark all read; FastAPI reads a bare JSON list as the ids.
+      body: ids && ids.length ? ids : undefined,
+    }),
 
   // -- admin ---------------------------------------------------------
   pendingAuthorities: () => request<ProfileList>('/admin/profiles/pending'),

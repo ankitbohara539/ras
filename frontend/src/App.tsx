@@ -1,27 +1,33 @@
-import type { ReactNode } from 'react'
+import { Suspense, type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { Toaster } from 'sonner'
 import { Layout } from './components/Layout'
 import { PwaPrompts } from './components/PwaPrompts'
-import { Spinner } from './components/ui'
+import { Spinner, TooltipProvider } from './components/ui'
 import { AuthProvider, useAuth } from './lib/auth'
 import { I18nProvider } from './lib/i18n'
 import { PrefsProvider } from './lib/prefs'
-import { Approvals } from './pages/admin/Approvals'
 import { AuthorityDashboard } from './pages/authority/Dashboard'
-import { PublishAlert } from './pages/authority/PublishAlert'
-import { ReviewQueue } from './pages/authority/ReviewQueue'
-import { SosQueue } from './pages/authority/SosQueue'
 import { CitizenHome } from './pages/citizen/Home'
-import { MyReports } from './pages/citizen/MyReports'
-import { Nearby } from './pages/citizen/Nearby'
-import { ReportIssue } from './pages/citizen/ReportIssue'
-import { Services } from './pages/citizen/Services'
-import { Sos } from './pages/citizen/Sos'
 import { Login } from './pages/Login'
-import { Notifications } from './pages/Notifications'
 import { Register } from './pages/Register'
-import { TicketDetailPage } from './pages/TicketDetail'
-import { Transparency } from './pages/Transparency'
+import {
+  Approvals,
+  CivicQueue,
+  CivicReport,
+  MyReports,
+  Nearby,
+  Notifications,
+  PublishAlert,
+  ReportIssue,
+  ReviewQueue,
+  SafeRoute,
+  Services,
+  Sos,
+  SosQueue,
+  TicketDetailPage,
+  Transparency,
+} from './routes'
 
 function RequireAuth({
   children,
@@ -48,6 +54,26 @@ function HomeRedirect() {
   return isAuthority ? <Navigate to="/authority" replace /> : <CitizenHome />
 }
 
+function RequireCitizen({ children }: { children: ReactNode }) {
+  const { profile, loading, isCitizen } = useAuth()
+  if (loading) return <Spinner />
+  if (!profile) return <Navigate to="/login" replace />
+  if (!isCitizen) return <Navigate to="/authority" replace />
+  return <>{children}</>
+}
+
+function HomeEntry() {
+  const { profile, loading } = useAuth()
+  if (loading) return <Spinner />
+  return profile ? (
+    <Layout />
+  ) : (
+    <Suspense fallback={<Spinner />}>
+      <Transparency />
+    </Suspense>
+  )
+}
+
 function PublicOnly({ children }: { children: ReactNode }) {
   const { profile, loading } = useAuth()
 
@@ -64,9 +90,11 @@ export default function App() {
   return (
     <I18nProvider>
       <PrefsProvider>
-        <BrowserRouter>
-          <AuthProvider>
+        <TooltipProvider delayDuration={250}>
+          <BrowserRouter>
+            <AuthProvider>
             <PwaPrompts />
+            <Toaster richColors closeButton position="top-right" />
             <Routes>
               <Route
                 path="/login"
@@ -86,7 +114,22 @@ export default function App() {
               />
               {/* No auth, no PublicOnly redirect -- this is the one page meant
                   to be shared with someone who never logs in at all. */}
-              <Route path="/transparency" element={<Transparency />} />
+              <Route
+                path="/public-dashboard"
+                element={
+                  <Suspense fallback={<Spinner />}>
+                    <Transparency />
+                  </Suspense>
+                }
+              />
+
+              <Route
+                path="/transparency"
+                element={<Navigate to="/public-dashboard" replace />}
+              />
+              <Route path="/" element={<HomeEntry />}>
+                <Route index element={<HomeRedirect />} />
+              </Route>
 
               <Route
                 element={
@@ -95,12 +138,13 @@ export default function App() {
                   </RequireAuth>
                 }
               >
-                <Route index element={<HomeRedirect />} />
                 <Route path="report" element={<ReportIssue />} />
                 <Route path="my-reports" element={<MyReports />} />
                 <Route path="nearby" element={<Nearby />} />
                 <Route path="services" element={<Services />} />
                 <Route path="sos" element={<Sos />} />
+                <Route path="civic" element={<CivicReport />} />
+                <Route path="safe-route" element={<RequireCitizen><SafeRoute /></RequireCitizen>} />
                 <Route path="notifications" element={<Notifications />} />
                 <Route path="tickets/:id" element={<TicketDetailPage />} />
 
@@ -129,6 +173,14 @@ export default function App() {
                   }
                 />
                 <Route
+                  path="authority/civic"
+                  element={
+                    <RequireAuth role="authority">
+                      <CivicQueue />
+                    </RequireAuth>
+                  }
+                />
+                <Route
                   path="authority/alerts"
                   element={
                     <RequireAuth role="authority">
@@ -148,8 +200,9 @@ export default function App() {
 
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
-          </AuthProvider>
-        </BrowserRouter>
+            </AuthProvider>
+          </BrowserRouter>
+        </TooltipProvider>
       </PrefsProvider>
     </I18nProvider>
   )

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
+import { AlertTriangle, Ambulance, CircleHelp, Flame, Phone, Shield } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import {
   Button,
   Card,
@@ -26,12 +28,12 @@ const LABELS: Record<SosStatus, string> = {
   closed: '',
 }
 
-const TYPE_ICON: Record<string, string> = {
-  medical: '🚑',
-  fire: '🔥',
-  police: '🚓',
-  disaster: '⚠️',
-  other: '❓',
+const TYPE_ICON: Record<string, LucideIcon> = {
+  medical: Ambulance,
+  fire: Flame,
+  police: Shield,
+  disaster: AlertTriangle,
+  other: CircleHelp,
 }
 
 export function SosQueue() {
@@ -83,9 +85,7 @@ export function SosQueue() {
       className={request.status === 'open' ? 'border-l-4' : ''}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <span aria-hidden="true" style={{ fontSize: '1.4rem' }}>
-          {TYPE_ICON[request.emergency_type] ?? '❓'}
-        </span>
+        {(() => { const Icon = TYPE_ICON[request.emergency_type] ?? CircleHelp; return <Icon size={22} aria-hidden="true" /> })()}
         <span className="font-bold" style={{ fontSize: 'var(--step-md)' }}>
           {t(`sos.${request.emergency_type}` as never)}
         </span>
@@ -134,7 +134,7 @@ export function SosQueue() {
                 className="font-semibold underline"
                 style={{ color: 'var(--color-brand)' }}
               >
-                📞 {request.contact_phone}
+                <Phone size={14} className="mr-1 inline" />{request.contact_phone}
               </a>
             ) : (
               '—'

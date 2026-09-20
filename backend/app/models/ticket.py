@@ -18,6 +18,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, Timestamped, UUIDPrimaryKey
 from app.models.enums import CandidateStatus, Language, TicketPriority, TicketStatus
 from app.models.geography import Municipality, Ward
+from app.models.profile import Profile
 
 EMBEDDING_DIM = 256
 
@@ -26,8 +27,8 @@ class Ticket(UUIDPrimaryKey, Timestamped, Base):
     """A reported civic issue.
 
     Tickets form a one-level tree: a ticket with parent_id set is a duplicate
-    report folded under a parent. Only an authority may set parent_id -- the
-    matcher writes suggestions to DuplicateCandidate and never touches this.
+    report folded under a parent. parent_id is set by an authority's merge, or
+    automatically when the matcher is at least `dedupe_auto_merge_score` sure.
     """
 
     __tablename__ = "tickets"
@@ -114,6 +115,11 @@ class Ticket(UUIDPrimaryKey, Timestamped, Base):
     community_verified: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    # Distinct citizens whose comments on this ticket press for a faster fix.
+    # Feeds the priority score; see ticket_service.escalate_for_comments.
+    urgent_commenter_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
 
     # Matcher output kept on the ticket itself.
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM))
@@ -130,9 +136,12 @@ class Ticket(UUIDPrimaryKey, Timestamped, Base):
     resolution_note: Mapped[str | None] = mapped_column(Text)
 
     # Eager-loaded: every ticket listing shows which ward owns it, and the
-    # alternative is an N+1 across the dashboard.
-    ward: Mapped["Ward"] = relationship(lazy="selectin")
-    municipality: Mapped["Municipality"] = relationship(lazy="selectin")
+    # alternative is an N+1 across the dashboard. Joined into the ticket's
+    # own SELECT rather than fetched after it: with the database a round trip
+    # away, two extra queries per ticket load were a visible share of every
+    # page's latency.
+    ward: Mapped["Ward"] = relationship(lazy="joined")
+    municipality: Mapped["Municipality"] = relationship(lazy="joined")
 
     parent: Mapped["Ticket | None"] = relationship(
         remote_side="Ticket.id",
@@ -217,7 +226,9 @@ class TicketCorroboration(UUIDPrimaryKey, Timestamped, Base):
 class DuplicateCandidate(UUIDPrimaryKey, Timestamped, Base):
     """A merge suggestion from the matcher, awaiting authority review.
 
-    This table is the only thing the model writes. Merging is a human action.
+    Suggestions at or above `dedupe_auto_merge_score` are merged straight
+    away and recorded here as MERGED with no reviewer; the rest wait for a
+    human.
     """
 
     __tablename__ = "duplicate_candidates"
@@ -283,6 +294,12 @@ class TicketComment(UUIDPrimaryKey, Timestamped, Base):
         index=True,
     )
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    # Joined so a thread and its author names come back in one query.
+    author: Mapped["Profile"] = relationship(lazy="joined")
+    # Set once, when the comment is posted, by app.ml.urgency.
+    is_urgent: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
 
 class TicketStatusHistory(UUIDPrimaryKey, Timestamped, Base):

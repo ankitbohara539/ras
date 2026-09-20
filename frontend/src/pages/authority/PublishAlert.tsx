@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { LocateFixed } from 'lucide-react'
 import {
   Button,
   Card,
@@ -247,11 +248,11 @@ export function PublishAlert() {
             <div className="mt-4 space-y-3">
               {geo.kind === 'ready' ? (
                 <p className="hint">
-                  📍 {geo.coords.latitude.toFixed(5)}, {geo.coords.longitude.toFixed(5)}
+                  <LocateFixed size={14} className="mr-1 inline" />{geo.coords.latitude.toFixed(5)}, {geo.coords.longitude.toFixed(5)}
                 </p>
               ) : (
                 <Button type="button" variant="secondary" onClick={locate} className="w-full">
-                  📍 {t('report.useMyLocation')}
+                  <LocateFixed size={16} />{t('report.useMyLocation')}
                 </Button>
               )}
 

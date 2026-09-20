@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react'
+import { AlertTriangle, Ambulance, CircleHelp, Flame, LocateFixed, Shield, Siren } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { Button, Card, ErrorNote, Field, PageTitle } from '../../components/ui'
 import { api } from '../../lib/api'
 import { formatDate, useGeolocation } from '../../lib/geo'
 import { useI18n } from '../../lib/i18n'
 import type { EmergencyType, SosCreateResponse, SosRequest } from '../../lib/types'
 
-const TYPES: { key: EmergencyType; icon: string }[] = [
-  { key: 'medical', icon: '🚑' },
-  { key: 'fire', icon: '🔥' },
-  { key: 'police', icon: '🚓' },
-  { key: 'disaster', icon: '⚠️' },
-  { key: 'other', icon: '❓' },
+const TYPES: { key: EmergencyType; icon: LucideIcon }[] = [
+  { key: 'medical', icon: Ambulance },
+  { key: 'fire', icon: Flame },
+  { key: 'police', icon: Shield },
+  { key: 'disaster', icon: AlertTriangle },
+  { key: 'other', icon: CircleHelp },
 ]
 
 export function Sos() {
@@ -64,9 +66,7 @@ export function Sos() {
             borderColor: 'var(--color-danger)',
           }}
         >
-          <p aria-hidden="true" style={{ fontSize: '2.5rem' }}>
-            🆘
-          </p>
+          <Siren aria-hidden="true" className="mx-auto size-10 text-danger" />
           <h1
             className="font-bold"
             style={{ fontSize: 'var(--step-lg)', color: 'var(--color-danger)' }}
@@ -142,9 +142,7 @@ export function Sos() {
                   minHeight: 'var(--tap)',
                 }}
               >
-                <span aria-hidden="true" style={{ fontSize: '1.6rem' }}>
-                  {option.icon}
-                </span>
+                <option.icon size={24} aria-hidden="true" />
                 <span style={{ fontSize: 'var(--step-sm)' }}>
                   {t(`sos.${option.key}` as never)}
                 </span>
@@ -167,7 +165,7 @@ export function Sos() {
 
         {geo.kind === 'ready' ? (
           <p className="mt-3 hint">
-            📍 {geo.coords.latitude.toFixed(5)}, {geo.coords.longitude.toFixed(5)}
+            <LocateFixed size={14} className="mr-1 inline" />{geo.coords.latitude.toFixed(5)}, {geo.coords.longitude.toFixed(5)}
           </p>
         ) : (
           <Button
@@ -176,7 +174,7 @@ export function Sos() {
             onClick={locate}
             className="mt-3 w-full"
           >
-            📍 {t('report.useMyLocation')}
+            <LocateFixed size={16} />{t('report.useMyLocation')}
           </Button>
         )}
       </Card>
@@ -188,7 +186,8 @@ export function Sos() {
         className="w-full"
         style={{ minHeight: '64px', fontSize: 'var(--step-lg)' }}
       >
-        {busy ? t('sos.sending') : `🆘 ${t('sos.send')}`}
+        {!busy && <Siren size={20} />}
+        {busy ? t('sos.sending') : t('sos.send')}
       </Button>
 
       {history.length > 0 && (

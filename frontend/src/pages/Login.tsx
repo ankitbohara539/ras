@@ -1,9 +1,12 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Button, ErrorNote, Field } from '../components/ui'
+import { ResendVerification } from '../components/ResendVerification'
+import { Button, ErrorNote, Field, PasswordInput, SuccessNote } from '../components/ui'
+import { ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useI18n } from '../lib/i18n'
-import { usePrefs } from '../lib/prefs'
+import { ArrowRight, ShieldCheck } from 'lucide-react'
+import { Brand, DisplayControls } from '../components/Brand'
 
 const DEMO_ACCOUNTS = [
   { email: 'sita@example.com', label: 'Citizen (Nepali UI)' },
@@ -12,78 +15,69 @@ const DEMO_ACCOUNTS = [
 ]
 
 function AuthShell({ children }: { children: React.ReactNode }) {
-  const { t, language, setLanguage } = useI18n()
-  const { largeText, highContrast, setLargeText, setHighContrast } = usePrefs()
-
+  const { t, language } = useI18n()
+  const text = (en: string, ne: string) => (language === 'ne' ? ne : en)
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center px-4 py-10">
-      {/* The accessibility controls are on the sign-in screen too: someone who
-          needs large text needs it before they have an account. */}
-      <div className="mb-6 flex flex-wrap items-center justify-center gap-2">
-        {(['en', 'ne'] as const).map((code) => (
-          <button
-            key={code}
-            type="button"
-            onClick={() => setLanguage(code)}
-            aria-pressed={language === code}
-            className="chip"
-            style={{
-              borderColor: 'var(--color-line)',
-              background:
-                language === code ? 'var(--color-brand)' : 'var(--color-surface)',
-              color: language === code ? '#fff' : 'var(--color-ink-soft)',
-              minHeight: '36px',
-            }}
-          >
-            {code === 'en' ? 'English' : 'नेपाली'}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => setLargeText(!largeText)}
-          aria-pressed={largeText}
-          className="chip"
-          style={{
-            borderColor: 'var(--color-line)',
-            background: largeText ? 'var(--color-brand)' : 'var(--color-surface)',
-            color: largeText ? '#fff' : 'var(--color-ink-soft)',
-            minHeight: '36px',
-          }}
-        >
-          A+ {t('a11y.largeText')}
-        </button>
-        <button
-          type="button"
-          onClick={() => setHighContrast(!highContrast)}
-          aria-pressed={highContrast}
-          className="chip"
-          style={{
-            borderColor: 'var(--color-line)',
-            background: highContrast ? 'var(--color-brand)' : 'var(--color-surface)',
-            color: highContrast ? '#fff' : 'var(--color-ink-soft)',
-            minHeight: '36px',
-          }}
-        >
-          ◐ {t('a11y.highContrast')}
-        </button>
-      </div>
-
-      <div className="w-full max-w-md">
-        <div className="mb-6 text-center">
-          <span
-            className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl font-bold text-white"
-            style={{ background: 'var(--color-brand)', fontSize: 'var(--step-xl)' }}
-            aria-hidden="true"
-          >
-            स
-          </span>
-          <h1 className="font-bold" style={{ fontSize: 'var(--step-xl)' }}>
-            {t('app.name')}
+    <div className="min-h-screen">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-surface px-5 py-4 sm:px-8">
+        <Brand to="/public-dashboard" />
+        <DisplayControls />
+      </header>
+      <main className="mx-auto grid max-w-6xl items-start gap-12 px-4 py-8 sm:px-8 lg:grid-cols-2 lg:py-16">
+        <section className="hidden space-y-6 lg:sticky lg:top-12 lg:block">
+          <p className="section-label">
+            {text(
+              'Your voice. Your neighbourhood.',
+              'तपाईंको आवाज। तपाईंको छिमेक।',
+            )}
+          </p>
+          <h1 className="max-w-md text-5xl font-semibold leading-tight tracking-tight">
+            {text(
+              'Better places, built together.',
+              'मिलेर बनाऔँ, राम्रो समुदाय।',
+            )}
           </h1>
-          <p className="hint">{t('app.tagline')}</p>
+          <p className="max-w-md text-base text-ink-soft">{t('app.tagline')}</p>
+          <div className="space-y-4 border-y border-line py-6">
+            {[
+              text(
+                'Report issues in your neighbourhood',
+                'आफ्नो छिमेकका समस्या दर्ता गर्नुहोस्',
+              ),
+              text(
+                'Follow every update, from report to resolution',
+                'दर्तादेखि समाधानसम्मको प्रगति हेर्नुहोस्',
+              ),
+              text(
+                'Find services and explore safer routes',
+                'सेवा खोज्नुहोस् र सुरक्षित मार्ग हेर्नुहोस्',
+              ),
+            ].map((label) => (
+              <p key={label} className="flex items-center gap-3 text-sm">
+                <ShieldCheck size={18} className="text-ink-soft" />
+                {label}
+              </p>
+            ))}
+          </div>
+          <Link to="/public-dashboard" className="btn btn-secondary">
+            {t('transparency.title')}
+            <ArrowRight size={16} />
+          </Link>
+        </section>
+        <div className="mx-auto w-full max-w-md">
+          <div className="mb-6 lg:hidden">
+            <p className="section-label">{t('app.name')}</p>
+            <p className="mt-2 text-xl font-semibold">{t('app.tagline')}</p>
+          </div>
+          {children}
+          <p className="mt-6 text-center">
+            <Link to="/public-dashboard" className="btn btn-ghost">
+              {t('transparency.title')}
+              <ArrowRight size={16} />
+            </Link>
+          </p>
         </div>
-        {children}
-      </div>
+      </main>
     </div>
   )
 }
@@ -97,16 +91,43 @@ export function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Sign-in was refused because the email is not verified yet.
+  const [unverified, setUnverified] = useState(false)
+  // Arrived from the link in the verification email.
+  const [justVerified, setJustVerified] = useState(false)
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+    if (params.get('verified') === '1' || hash.get('type') === 'signup') {
+      setJustVerified(!hash.get('error'))
+      if (hash.get('error_description')) setError(hash.get('error_description'))
+      // Supabase appends the new session's tokens to the link. This app
+      // signs in through its own API, so drop them from the address bar
+      // (and from history) rather than leave tokens lying around.
+      window.history.replaceState(null, '', '/login')
+    }
+  }, [])
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     setError(null)
+    setUnverified(false)
     setBusy(true)
 
     try {
       const profile = await signIn(email, password)
-      navigate(profile.role === 'citizen' ? '/' : '/authority', { replace: true })
+      navigate(profile.role === 'citizen' ? '/' : '/authority', {
+        replace: true,
+      })
     } catch (err) {
+      if (
+        err instanceof ApiError &&
+        err.status === 403 &&
+        /verify your email/i.test(err.message)
+      ) {
+        setUnverified(true)
+      }
       setError(err instanceof Error ? err.message : t('common.error'))
     } finally {
       setBusy(false)
@@ -120,7 +141,9 @@ export function Login() {
           {t('auth.login')}
         </h2>
 
+        {justVerified && <SuccessNote>{t('auth.verified')}</SuccessNote>}
         {error && <ErrorNote message={error} />}
+        {unverified && <ResendVerification email={email} />}
 
         <Field label={t('auth.email')} required>
           <input
@@ -134,9 +157,7 @@ export function Login() {
         </Field>
 
         <Field label={t('auth.password')} required>
-          <input
-            type="password"
-            className="field"
+          <PasswordInput
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="current-password"
@@ -150,14 +171,21 @@ export function Login() {
 
         <p className="text-center hint">
           {t('auth.noAccount')}{' '}
-          <Link to="/register" className="font-semibold underline" style={{ color: 'var(--color-brand)' }}>
+          <Link
+            to="/register"
+            className="font-semibold underline"
+            style={{ color: 'var(--color-brand)' }}
+          >
             {t('auth.register')}
           </Link>
         </p>
       </form>
 
       <div className="card mt-4 p-4">
-        <p className="mb-2 font-semibold" style={{ fontSize: 'var(--step-sm)' }}>
+        <p
+          className="mb-2 font-semibold"
+          style={{ fontSize: 'var(--step-sm)' }}
+        >
           Demo accounts
         </p>
         <div className="space-y-1">
@@ -173,18 +201,15 @@ export function Login() {
               style={{ fontSize: 'var(--step-xs)' }}
             >
               <span className="font-mono">{account.email}</span>
-              <span style={{ color: 'var(--color-ink-faint)' }}>{account.label}</span>
+              <span style={{ color: 'var(--color-ink-faint)' }}>
+                {account.label}
+              </span>
             </button>
           ))}
         </div>
         <p className="mt-2 hint">Password: Sahayatri@2025</p>
       </div>
 
-      <p className="mt-4 text-center">
-        <Link to="/transparency" className="font-semibold underline" style={{ color: 'var(--color-brand)' }}>
-          {t('transparency.title')}
-        </Link>
-      </p>
     </AuthShell>
   )
 }

@@ -68,3 +68,25 @@ class CivicServiceListItem(CivicServiceResponse):
     """A service plus its distance from the caller, when coordinates are given."""
 
     distance_m: float | None = None
+
+
+class ReverseGeocodeResponse(BaseModel):
+    """What is at these coordinates, and which ward a report here goes to.
+
+    One call instead of two because the report form needs both every time the
+    pin moves. Names are null when the geocoder is down; the ward is always
+    set (it falls back to the nearest centroid).
+    """
+
+    latitude: float
+    longitude: float
+    place_name: str | None = None
+    display_name: str | None = None
+    ward: WardResponse | None = None
+
+
+class PlaceSearchResult(BaseModel):
+    name: str
+    display_name: str
+    latitude: float
+    longitude: float

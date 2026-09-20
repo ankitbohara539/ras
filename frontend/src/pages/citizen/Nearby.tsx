@@ -28,7 +28,7 @@ type Scope = 'nearby' | 'ward'
 export function Nearby() {
   const { t } = useI18n()
   const { profile } = useAuth()
-  const { state: geo, locate } = useGeolocation()
+  const { state: geo, locate } = useGeolocation({ refine: false })
 
   const [scope, setScope] = useState<Scope>('nearby')
   const [tickets, setTickets] = useState<TicketSummary[]>([])

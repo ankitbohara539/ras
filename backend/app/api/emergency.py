@@ -376,11 +376,16 @@ def list_notifications(
         .limit(limit)
     ).all()
 
-    unread = db.scalar(
-        select(func.count())
-        .select_from(Notification)
-        .where(Notification.user_id == profile.id, Notification.read_at.is_(None))
-    ) or 0
+    # When the page holds every matching row, count from it instead of
+    # asking the database again. The badge polls this every 30 seconds.
+    if len(rows) < limit:
+        unread = sum(1 for n in rows if n.read_at is None)
+    else:
+        unread = db.scalar(
+            select(func.count())
+            .select_from(Notification)
+            .where(Notification.user_id == profile.id, Notification.read_at.is_(None))
+        ) or 0
 
     return NotificationListResponse(
         items=[NotificationResponse.model_validate(n) for n in rows],

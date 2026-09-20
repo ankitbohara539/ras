@@ -1,101 +1,203 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import {
+  ArrowRight,
+  Building2,
+  ChartNoAxesCombined,
+  FilePlus2,
+  MapPin,
+  Route,
+  Siren,
+  Sparkles,
+  Users,
+} from 'lucide-react'
+import { DashboardSummaryModal } from '../../components/DashboardSummaryModal'
 import { TicketCard } from '../../components/TicketCard'
 import {
+  Button,
   Card,
   EmptyState,
+  ErrorNote,
   SeverityBadge,
   SpeakButton,
   Spinner,
 } from '../../components/ui'
 import { api } from '../../lib/api'
 import { useAuth } from '../../lib/auth'
+import { useQuery } from '../../lib/cache'
 import { useI18n } from '../../lib/i18n'
 import type { Alert, TicketSummary } from '../../lib/types'
 
 export function CitizenHome() {
-  const { t, pick } = useI18n()
+  const { t, pick, language } = useI18n()
+  const text = (en: string, ne: string) => (language === 'ne' ? ne : en)
   const { profile } = useAuth()
+  const [showSummary, setShowSummary] = useState(false)
 
-  const [tickets, setTickets] = useState<TicketSummary[]>([])
-  const [alerts, setAlerts] = useState<Alert[]>([])
-  const [loading, setLoading] = useState(true)
+  // Home is the page people return to most, so it paints from cache and
+  // refreshes behind the scenes. Each half fails on its own: no alerts is
+  // not a reason to hide your reports.
+  const mine = useQuery(profile ? `tickets:mine:5:${profile.id}` : null, () =>
+    api.tickets({ mine: true, limit: 5 }),
+  )
+  const active = useQuery(
+    profile ? `alerts:${profile.id}` : null,
+    () => api.alerts(),
+    {
+      refetchIntervalMs: 60_000,
+    },
+  )
+  const tickets: TicketSummary[] = mine.data?.items ?? []
+  const alerts: Alert[] = active.data ?? []
 
-  useEffect(() => {
-    let cancelled = false
-
-    async function load() {
-      try {
-        const [mine, active] = await Promise.all([
-          api.tickets({ mine: true, limit: 5 }),
-          api.alerts(),
-        ])
-        if (cancelled) return
-        setTickets(mine.items)
-        setAlerts(active)
-      } catch {
-        // Leave the page empty rather than blocking on a partial failure.
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-
-    void load()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  if (loading) return <Spinner />
+  if (mine.loading && active.loading) return <Spinner />
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="font-bold" style={{ fontSize: 'var(--step-xl)' }}>
-          {profile?.full_name?.split(' ')[0] ?? ''}
-        </h1>
-        <p className="hint">{t('app.tagline')}</p>
+    <div className="dashboard-page space-y-6">
+      <section className="dashboard-heading flex flex-wrap items-end justify-between gap-4 p-6 sm:p-7">
+        <div>
+          <p className="section-label mb-2">
+            {text('Your civic workspace', 'तपाईंको नागरिक कार्यस्थल')}
+          </p>
+          <h1 className="text-3xl font-semibold tracking-tight">
+            {text('Welcome back,', 'स्वागत छ,')}{' '}
+            {profile?.full_name?.split(' ')[0] ?? ''}
+          </h1>
+          <p className="mt-2 text-sm text-ink-soft">{t('app.tagline')}</p>
+        </div>
+        <Link to="/my-reports" className="btn btn-secondary">
+          {t('nav.myReports')}
+          <ArrowRight size={16} />
+        </Link>
+      </section>
+
+      <div
+        className="card flex flex-wrap items-center gap-3 p-4"
+        style={{ background: 'var(--color-brand-soft)', borderColor: 'var(--color-brand)' }}
+      >
+        <span className="icon-tile border-brand/20 bg-surface text-brand">
+          <Sparkles size={19} aria-hidden="true" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="font-bold" style={{ fontSize: 'var(--step-md)' }}>
+            {t('summary.citizenCardTitle')}
+          </p>
+          <p className="hint">{t('summary.citizenCardHint')}</p>
+        </div>
+        <Button onClick={() => setShowSummary(true)}>{t('summary.buttonLabel')}</Button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Link
-          to="/report"
-          className="card flex items-center gap-4 p-5 transition hover:border-[var(--color-brand)]"
-          style={{ background: 'var(--color-brand-soft)', borderColor: 'var(--color-brand)' }}
-        >
-          <span aria-hidden="true" style={{ fontSize: '2rem' }}>
-            📝
-          </span>
-          <div>
-            <p className="font-bold" style={{ fontSize: 'var(--step-md)' }}>
-              {t('report.title')}
-            </p>
-            <p className="hint">{t('report.descriptionHint')}</p>
-          </div>
-        </Link>
+      {showSummary && <DashboardSummaryModal onClose={() => setShowSummary(false)} />}
 
-        <Link
-          to="/sos"
-          className="card flex items-center gap-4 p-5 transition"
-          style={{ background: 'var(--color-danger-soft)', borderColor: 'var(--color-danger)' }}
-        >
-          <span aria-hidden="true" style={{ fontSize: '2rem' }}>
-            🆘
-          </span>
+      <section className="grid gap-4 md:grid-cols-[1.5fr_1fr]">
+        <div className="dashboard-primary-action rounded-2xl bg-ink p-6 text-white shadow-[0_18px_45px_rgba(29,41,61,0.16)] sm:p-8">
+          <FilePlus2 size={28} className="mb-5" />
+          <h2 className="text-2xl font-semibold tracking-tight">
+            {text(
+              'Make your neighbourhood better.',
+              'आफ्नो छिमेक राम्रो बनाऔँ।',
+            )}
+          </h2>
+          <p className="mt-2 max-w-lg text-sm text-mint">
+            {t('report.descriptionHint')}
+          </p>
+          <Link to="/report" className="btn mt-6 bg-white text-ink">
+            {t('report.title')}
+            <ArrowRight size={16} />
+          </Link>
+        </div>
+        <div className="interactive-card card flex flex-col justify-between p-6">
           <div>
-            <p
-              className="font-bold"
-              style={{ fontSize: 'var(--step-md)', color: 'var(--color-danger)' }}
+            <span className="icon-tile mb-4 !border-danger/20 !bg-danger-soft text-danger">
+              <Siren />
+            </span>
+            <h2 className="text-lg font-semibold">{t('sos.title')}</h2>
+            <p className="mt-2 text-sm text-ink-soft">{t('sos.hint')}</p>
+          </div>
+          <Link
+            to="/sos"
+            className="btn btn-secondary mt-5 justify-between !border-danger/20 !text-danger"
+          >
+            {t('nav.sos')}
+            <ArrowRight size={16} />
+          </Link>
+        </div>
+      </section>
+
+      <section className="dashboard-panel p-5 sm:p-6" aria-labelledby="community-tools">
+        <h2 id="community-tools" className="mb-3 text-lg font-semibold">
+          {text('Explore & participate', 'हेर्नुहोस् र सहभागी बन्नुहोस्')}
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {[
+            {
+              to: '/nearby',
+              label: t('nav.nearby'),
+              hint: text('See reports around you', 'आसपासका उजुरी हेर्नुहोस्'),
+              icon: MapPin,
+            },
+            {
+              to: '/safe-route',
+              label: t('nav.safeRoute'),
+              hint: text(
+                'Plan around reported hazards',
+                'जोखिम हेरेर यात्रा योजना',
+              ),
+              icon: Route,
+            },
+            {
+              to: '/services',
+              label: t('nav.services'),
+              hint: text(
+                'Find local services and contacts',
+                'स्थानीय सेवा र सम्पर्क',
+              ),
+              icon: Building2,
+            },
+            {
+              to: '/civic',
+              label: t('nav.civic'),
+              hint: text('Help care for shared spaces', 'साझा ठाउँको हेरचाह'),
+              icon: Users,
+            },
+            {
+              to: '/public-dashboard',
+              label: t('transparency.title'),
+              hint: text(
+                'See community-wide progress',
+                'समुदायको प्रगति हेर्नुहोस्',
+              ),
+              icon: ChartNoAxesCombined,
+            },
+          ].map(({ icon: Icon, ...item }) => (
+            <Link
+              key={item.to}
+              to={item.to}
+              className="interactive-card group card flex items-center gap-3 p-4"
             >
-              {t('sos.title')}
-            </p>
-            <p className="hint">{t('sos.hint')}</p>
-          </div>
-        </Link>
-      </div>
+              <span className="icon-tile transition-colors duration-200 group-hover:border-brand/25 group-hover:bg-brand-soft group-hover:text-brand">
+                <Icon />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold">
+                  {item.label}
+                </span>
+                <span className="mt-1 block hint">{item.hint}</span>
+              </span>
+              <ArrowRight size={16} className="shrink-0 text-ink-faint transition-transform duration-200 group-hover:translate-x-1 group-hover:text-brand" />
+            </Link>
+          ))}
+        </div>
+      </section>
+      {active.error instanceof Error && (
+        <ErrorNote message={active.error.message} />
+      )}
+      {mine.error instanceof Error && (
+        <ErrorNote message={mine.error.message} />
+      )}
 
       {alerts.length > 0 && (
-        <section>
+        <section className="dashboard-panel p-5 sm:p-6">
           <h2 className="mb-3 font-bold" style={{ fontSize: 'var(--step-lg)' }}>
             {t('alerts.title')}
           </h2>
@@ -110,7 +212,10 @@ export function CitizenHome() {
                     <SeverityBadge severity={alert.severity} />
                     <SpeakButton text={`${title}. ${body}`} />
                   </div>
-                  <p className="mt-2 font-semibold" style={{ fontSize: 'var(--step-md)' }}>
+                  <p
+                    className="mt-2 font-semibold"
+                    style={{ fontSize: 'var(--step-md)' }}
+                  >
                     {title}
                   </p>
                   <p className="mt-1" style={{ fontSize: 'var(--step-sm)' }}>
@@ -121,7 +226,10 @@ export function CitizenHome() {
                       className="mt-3 rounded-lg p-3"
                       style={{ background: 'var(--color-canvas)' }}
                     >
-                      <p className="font-semibold" style={{ fontSize: 'var(--step-sm)' }}>
+                      <p
+                        className="font-semibold"
+                        style={{ fontSize: 'var(--step-sm)' }}
+                      >
                         {t('alerts.instructions')}
                       </p>
                       <p style={{ fontSize: 'var(--step-sm)' }}>
@@ -136,7 +244,7 @@ export function CitizenHome() {
         </section>
       )}
 
-      <section>
+      <section className="dashboard-panel p-5 sm:p-6">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-bold" style={{ fontSize: 'var(--step-lg)' }}>
             {t('nav.myReports')}
@@ -145,7 +253,10 @@ export function CitizenHome() {
             <Link
               to="/my-reports"
               className="font-semibold underline"
-              style={{ fontSize: 'var(--step-sm)', color: 'var(--color-brand)' }}
+              style={{
+                fontSize: 'var(--step-sm)',
+                color: 'var(--color-brand)',
+              }}
             >
               {t('common.viewAll')}
             </Link>

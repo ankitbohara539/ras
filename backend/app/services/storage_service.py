@@ -8,6 +8,7 @@ the hash back.
 
 from __future__ import annotations
 
+import time
 import uuid
 from pathlib import PurePosixPath
 
@@ -53,9 +54,13 @@ async def read_and_validate(upload: UploadFile) -> bytes:
 
 
 def upload_photo(
-    payload: bytes, ticket_id: uuid.UUID, content_type: str
+    payload: bytes, ticket_id: uuid.UUID | str, content_type: str
 ) -> str:
-    """Store the bytes and return the storage path."""
+    """Store the bytes and return the storage path.
+
+    `ticket_id` is the folder: a ticket id, or any prefix such as
+    "civic/<id>" for other kinds of evidence.
+    """
     settings = get_settings()
     extension = ALLOWED_CONTENT_TYPES.get(content_type, ".jpg")
     path = str(PurePosixPath(str(ticket_id)) / f"{uuid.uuid4().hex}{extension}")
@@ -84,6 +89,16 @@ def upload_photo(
     return path
 
 
+def remove_photos(paths: list[str]) -> None:
+    """Best-effort delete, for uploads whose database row never committed."""
+    if not paths:
+        return
+    try:
+        get_supabase().storage.from_(get_settings().supabase_photo_bucket).remove(paths)
+    except Exception:
+        pass
+
+
 def signed_url(path: str, expires_in: int = 3600) -> str | None:
     """A time-limited URL for a private bucket.
 
@@ -101,3 +116,50 @@ def signed_url(path: str, expires_in: int = 3600) -> str | None:
     if isinstance(result, dict):
         return result.get("signedURL") or result.get("signed_url")
     return None
+
+
+# A signed URL is good for an hour; hand out the same one for most of that
+# instead of asking Supabase again on every page view. Refreshed 10 minutes
+# before expiry so a page never receives a link about to die.
+_SIGNED_TTL_SECONDS = 3600
+_SIGNED_REUSE_SECONDS = _SIGNED_TTL_SECONDS - 600
+_signed_cache: dict[str, tuple[str, float]] = {}
+
+
+def signed_urls(paths: list[str]) -> dict[str, str | None]:
+    """Signed URLs for many photos in one Supabase call, cached.
+
+    One call per photo, one after another, was a quarter-second each on the
+    ticket page.
+    """
+    now = time.time()
+    result: dict[str, str | None] = {}
+    missing: list[str] = []
+    for path in paths:
+        hit = _signed_cache.get(path)
+        if hit is not None and hit[1] > now:
+            result[path] = hit[0]
+        else:
+            missing.append(path)
+
+    if missing:
+        settings = get_settings()
+        try:
+            signed = get_supabase().storage.from_(
+                settings.supabase_photo_bucket
+            ).create_signed_urls(missing, _SIGNED_TTL_SECONDS)
+        except Exception:
+            signed = []
+
+        if len(_signed_cache) > 5000:
+            _signed_cache.clear()
+        for item in signed:
+            path = item.get("path")
+            url = item.get("signedURL") or item.get("signedUrl")
+            if path and url and not item.get("error"):
+                _signed_cache[path] = (url, now + _SIGNED_REUSE_SECONDS)
+                result[path] = url
+
+    for path in paths:
+        result.setdefault(path, None)
+    return result

@@ -31,8 +31,8 @@ export default defineConfig(({ mode }) => {
           scope: '/',
           display: 'standalone',
           orientation: 'portrait',
-          background_color: '#f6f7f9',
-          theme_color: '#0d5c63',
+          background_color: '#FFFFFF',
+          theme_color: '#1D293D',
           categories: ['government', 'utilities', 'social'],
           icons: [
             { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
@@ -71,7 +71,7 @@ export default defineConfig(({ mode }) => {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
           navigateFallback: '/index.html',
           // Never let the shell swallow API calls.
-          navigateFallbackDenylist: [/^\/api\//],
+          navigateFallbackDenylist: [/^\/api\//, /^\/docs\//],
           cleanupOutdatedCaches: true,
 
           runtimeCaching: [

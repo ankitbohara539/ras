@@ -91,6 +91,30 @@ class TestGeoGate:
         assert len(rank_candidates(report, [candidate], radius_m=300)) == 1
 
 
+class TestGpsSlack:
+    def test_just_beyond_the_radius_is_suggested_with_slack(self):
+        """Two phones at one pothole record points 68 m apart; radius is 60."""
+        report = make_input(POINT_A, embedding=SIMILAR_VECTOR_A)
+        candidate = make_candidate(POINT_B, embedding=SIMILAR_VECTOR_A)
+        distance = score_pair(report, candidate, 1000, MatchWeights()).distance_m
+        radius = distance - 8  # candidate sits 8 m outside the radius
+
+        assert rank_candidates(report, [candidate], radius_m=radius) == []
+        results = rank_candidates(report, [candidate], radius_m=radius, gps_slack_m=40)
+        assert len(results) == 1
+        # Outside the radius it earns nothing for distance.
+        assert results[0].geo_score == 0.0
+
+    def test_slack_does_not_reopen_far_away_matches(self):
+        results = rank_candidates(
+            make_input(POINT_A, embedding=SIMILAR_VECTOR_A),
+            [make_candidate(POINT_FAR, embedding=SIMILAR_VECTOR_A)],
+            radius_m=100,
+            gps_slack_m=40,
+        )
+        assert results == []
+
+
 class TestScoring:
     def test_different_category_scores_lower_than_same(self):
         report = make_input(POINT_A, embedding=SIMILAR_VECTOR_A)

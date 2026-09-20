@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Check } from 'lucide-react'
 import {
   Button,
   Card,
@@ -131,7 +132,7 @@ export function Approvals() {
                     disabled={busy === account.id}
                     onClick={() => approve(account.id)}
                   >
-                    ✓ {t('approvals.approve')}
+                    <Check size={16} /> {t('approvals.approve')}
                   </Button>
                   <Button
                     variant="secondary"
