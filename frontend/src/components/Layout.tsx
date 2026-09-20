@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Siren,
   Users,
+  UserRound,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -28,6 +29,7 @@ import { useI18n } from '../lib/i18n'
 import { preloadAllRoutes, preloadRoute } from '../routes'
 import { Spinner, Tooltip } from './ui'
 import { Brand, DisplayControls } from './Brand'
+import { ProfileAvatar } from './ProfileAvatar'
 
 type NavItem = { to: string; label: string; icon: LucideIcon; end?: boolean }
 
@@ -74,7 +76,6 @@ export function Layout() {
     { to: '/civic', label: t('nav.civic'), icon: Users },
   ]
   const explore: NavItem[] = [
-    { to: '/nearby', label: t('nav.nearby'), icon: MapPin },
     ...(!isAuthority ? [{ to: '/safe-route', label: t('nav.safeRoute'), icon: Route }] : []),
     { to: '/services', label: t('nav.services'), icon: Building2 },
   ]
@@ -91,6 +92,7 @@ export function Layout() {
       icon: CopyCheck,
     },
     { to: '/authority/civic', label: t('nav.civicQueue'), icon: Users },
+    { to: '/authority/people', label: text('Ward civilians', 'à¤µà¤¡à¤¾ à¤¨à¤¾à¤—à¤°à¤¿à¤•'), icon: Users },
     { to: '/authority/alerts', label: t('nav.publishAlert'), icon: Megaphone },
     ...(isAdmin
       ? [
@@ -99,6 +101,8 @@ export function Layout() {
             label: t('nav.approvals'),
             icon: ShieldCheck,
           },
+          { to: '/admin/users', label: text('User management', 'à¤ªà¥à¤°à¤¯à¥‹à¤—à¤•à¤°à¥à¤¤à¤¾ à¤µà¥à¤¯à¤µà¤¸à¥à¤¥à¤¾à¤ªà¤¨'), icon: UserRound },
+          { to: '/admin/wards', label: text('Ward management', 'à¤µà¤¡à¤¾ à¤µà¥à¤¯à¤µà¤¸à¥à¤¥à¤¾à¤ªà¤¨'), icon: MapPin },
         ]
       : []),
   ]
@@ -136,7 +140,7 @@ export function Layout() {
     .find((i) => i.to === location.pathname)
   const mobile = isAuthority
     ? [authority[0], authority[1], emergency, authority[2], authority[3]]
-    : [citizen[0], explore[0], citizen[1], explore[2], emergency]
+    : [citizen[0], citizen[1], explore[0], explore[1], emergency]
   const closeMenu = () => {
     setMenuOpen(false)
     menuButton.current?.focus()
@@ -173,23 +177,35 @@ export function Layout() {
         ))}
       </div>
       <div className={compact ? 'mt-auto space-y-2 border-t border-line p-2' : 'mt-auto space-y-2 border-t border-line p-4'}>
-        <div className="mb-3 flex items-center gap-3">
-          <span className="icon-tile font-semibold">
-            {profile?.full_name?.slice(0, 1)}
-          </span>
-          <div className={compact ? 'sr-only' : 'min-w-0'}>
-            <p className="truncate text-sm font-semibold">
-              {profile?.full_name}
-            </p>
-            <p className="hint">
-              {isAdmin
-                ? text('Administrator', 'प्रशासक')
-                : isAuthority
-                  ? text('Authority workspace', 'अधिकारी कार्यस्थल')
-                  : text('Citizen account', 'नागरिक खाता')}
-            </p>
-          </div>
-        </div>
+        <Tooltip content={text('Open your profile', 'आफ्नो प्रोफाइल खोल्नुहोस्')}>
+          <NavLink
+            to="/profile"
+            className={({ isActive }) =>
+              `${compact ? 'mb-2 flex justify-center rounded-xl p-1.5' : 'mb-3 flex items-center gap-3 rounded-xl border p-2.5'} transition-colors ${isActive ? 'border-brand/20 bg-brand-soft' : compact ? 'hover:bg-canvas' : 'border-transparent hover:border-line hover:bg-canvas'}`
+            }
+            onClick={() => setMenuOpen(false)}
+          >
+            <ProfileAvatar
+              name={profile?.full_name}
+              email={profile?.email ?? ''}
+              url={profile?.avatar_url}
+              size={compact ? 'sm' : 'md'}
+            />
+            <div className={compact ? 'sr-only' : 'min-w-0 flex-1'}>
+              <p className="truncate text-sm font-semibold">
+                {profile?.full_name || text('Unnamed user', 'नाम नभएको प्रयोगकर्ता')}
+              </p>
+              <p className="truncate text-xs text-ink-soft">{profile?.email}</p>
+              <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-brand">
+                {isAdmin
+                  ? text('Administrator', 'प्रशासक')
+                  : isAuthority
+                    ? text('Ward authority', 'वडा अधिकारी')
+                    : text('Citizen', 'नागरिक')}
+              </p>
+            </div>
+          </NavLink>
+        </Tooltip>
         <Tooltip content={t('nav.logout')}>
           <button
             type="button"

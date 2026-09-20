@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 from app.models.enums import Language
 
@@ -16,10 +16,18 @@ class ProfileUpdateRequest(BaseModel):
 
     full_name: str | None = Field(default=None, min_length=2, max_length=160)
     phone: str | None = Field(default=None, max_length=32)
+    email: EmailStr | None = None
+    # A person can correct their home ward themselves. The API derives the
+    # municipality from the selected ward, so forged cross-municipality pairs
+    # never enter the database.
     ward_id: UUID | None = None
     preferred_language: Language | None = None
     large_text: bool | None = None
     high_contrast: bool | None = None
+
+
+class AvatarResponse(BaseModel):
+    url: str | None = None
 
 
 class DashboardIssueOut(BaseModel):

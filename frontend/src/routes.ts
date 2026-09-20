@@ -21,7 +21,6 @@ const loaders = {
   ticketDetail: () => import('./pages/TicketDetail'),
   report: () => import('./pages/citizen/ReportIssue'),
   myReports: () => import('./pages/citizen/MyReports'),
-  nearby: () => import('./pages/citizen/Nearby'),
   services: () => import('./pages/citizen/Services'),
   sos: () => import('./pages/citizen/Sos'),
   civic: () => import('./pages/citizen/CivicReport'),
@@ -33,12 +32,15 @@ const loaders = {
   publishAlert: () => import('./pages/authority/PublishAlert'),
   civicQueue: () => import('./pages/authority/CivicQueue'),
   approvals: () => import('./pages/admin/Approvals'),
+  users: () => import('./pages/admin/Users'),
+  wards: () => import('./pages/admin/Wards'),
+  wardPeople: () => import('./pages/authority/WardPeople'),
+  profile: () => import('./pages/Profile'),
 }
 
 export const TicketDetailPage = lazy(() => loaders.ticketDetail().then((m) => ({ default: m.TicketDetailPage })))
 export const ReportIssue = lazy(() => loaders.report().then((m) => ({ default: m.ReportIssue })))
 export const MyReports = lazy(() => loaders.myReports().then((m) => ({ default: m.MyReports })))
-export const Nearby = lazy(() => loaders.nearby().then((m) => ({ default: m.Nearby })))
 export const Services = lazy(() => loaders.services().then((m) => ({ default: m.Services })))
 export const Sos = lazy(() => loaders.sos().then((m) => ({ default: m.Sos })))
 export const CivicReport = lazy(() => loaders.civic().then((m) => ({ default: m.CivicReport })))
@@ -50,12 +52,15 @@ export const SosQueue = lazy(() => loaders.sosQueue().then((m) => ({ default: m.
 export const PublishAlert = lazy(() => loaders.publishAlert().then((m) => ({ default: m.PublishAlert })))
 export const CivicQueue = lazy(() => loaders.civicQueue().then((m) => ({ default: m.CivicQueue })))
 export const Approvals = lazy(() => loaders.approvals().then((m) => ({ default: m.Approvals })))
+export const UserManagement = lazy(() => loaders.users().then((m) => ({ default: m.UserManagement })))
+export const WardManagement = lazy(() => loaders.wards().then((m) => ({ default: m.WardManagement })))
+export const WardPeople = lazy(() => loaders.wardPeople().then((m) => ({ default: m.WardPeople })))
+export const ProfilePage = lazy(() => loaders.profile().then((m) => ({ default: m.ProfilePage })))
 
 const BY_PATH: [RegExp, () => Promise<unknown>][] = [
   [/^\/tickets\//, loaders.ticketDetail],
   [/^\/report$/, loaders.report],
   [/^\/my-reports$/, loaders.myReports],
-  [/^\/nearby$/, loaders.nearby],
   [/^\/services$/, loaders.services],
   [/^\/sos$/, loaders.sos],
   [/^\/civic$/, loaders.civic],
@@ -67,6 +72,10 @@ const BY_PATH: [RegExp, () => Promise<unknown>][] = [
   [/^\/authority\/alerts$/, loaders.publishAlert],
   [/^\/authority\/civic$/, loaders.civicQueue],
   [/^\/admin\/approvals$/, loaders.approvals],
+  [/^\/admin\/users$/, loaders.users],
+  [/^\/admin\/wards$/, loaders.wards],
+  [/^\/authority\/people$/, loaders.wardPeople],
+  [/^\/profile$/, loaders.profile],
 ]
 
 /** Start loading a page's code (hover / focus / touch on a link to it). */

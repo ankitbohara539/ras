@@ -32,6 +32,7 @@ export type Profile = {
   email: string
   full_name: string | null
   phone: string | null
+  avatar_url: string | null
   role: UserRole
   account_status: AccountStatus
   municipality_id: string | null
@@ -324,6 +325,7 @@ export type CivicStatus = 'submitted' | 'under_review' | 'action_taken' | 'dismi
 export type CivicComplaint = {
   id: string
   public_code: string
+  reporter_id: string
   category: CivicCategory
   description: string
   latitude: number
@@ -348,6 +350,31 @@ export type CivicComplaintList = {
   total: number
   counts: Partial<Record<CivicStatus, number>>
 }
+
+export type AdminContentItem = {
+  id: string
+  code: string
+  kind: 'report' | 'civic'
+  title: string | null
+  description: string
+  ward_id: string
+  status: string
+  created_at: string
+}
+
+export type AdminProfileDetail = {
+  profile: Profile
+  reports: AdminContentItem[]
+  civic_complaints: AdminContentItem[]
+}
+
+export type ManagedWard = Ward & {
+  civilian_count: number
+  authority_count: number
+  report_count: number
+}
+
+export type WardDetail = ManagedWard & { civilians: Profile[] }
 
 export type TravelMode = 'walk' | 'wheelchair' | 'drive'
 

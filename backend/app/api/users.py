@@ -1,15 +1,21 @@
 import json
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.security import get_current_profile
+from app.core.security import get_current_profile, require_authority
 from app.db.session import get_db
+from app.models.enums import UserRole
+from app.models.geography import Ward
 from app.models.profile import Profile
+from app.schema.admin import ProfileListResponse
 from app.schema.auth import ProfileResponse
-from app.schema.user import DashboardIssueOut, DashboardSummaryResponse, ProfileUpdateRequest
+from app.schema.user import AvatarResponse, DashboardIssueOut, DashboardSummaryResponse, ProfileUpdateRequest
+from app.services.auth_service import update_auth_email
+from app.services.storage_service import read_and_validate, remove_photos, signed_url, upload_photo
 from app.services.summary_service import (
     DashboardSummary,
     get_dashboard_summary,
@@ -19,9 +25,51 @@ from app.services.summary_service import (
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
+def _profile_response(profile: Profile) -> ProfileResponse:
+    """Return the caller's profile with a usable private-avatar URL."""
+    response = ProfileResponse.model_validate(profile)
+    return response.model_copy(
+        update={
+            "avatar_url": signed_url(profile.avatar_path)
+            if profile.avatar_path
+            else None
+        }
+    )
+
+
 @router.get("/me", response_model=ProfileResponse)
 def me(profile: Profile = Depends(get_current_profile)) -> ProfileResponse:
-    return ProfileResponse.model_validate(profile)
+    return _profile_response(profile)
+
+
+@router.get("/ward/civilians", response_model=ProfileListResponse)
+def ward_civilians(
+    search: str | None = Query(default=None, max_length=120),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    authority: Profile = Depends(require_authority),
+    db: Session = Depends(get_db),
+) -> ProfileListResponse:
+    """Directory for the authority's assigned operational area only."""
+    filters = [Profile.role == UserRole.CITIZEN]
+    if authority.role is not UserRole.ADMIN:
+        if authority.ward_id is not None:
+            filters.append(Profile.ward_id == authority.ward_id)
+        elif authority.municipality_id is not None:
+            filters.append(Profile.municipality_id == authority.municipality_id)
+        else:
+            filters.append(Profile.id.is_(None))
+    if search:
+        pattern = f"%{search.lower()}%"
+        filters.append(
+            func.lower(Profile.email).like(pattern)
+            | func.lower(func.coalesce(Profile.full_name, "")).like(pattern)
+        )
+    total = db.scalar(select(func.count()).select_from(Profile).where(*filters)) or 0
+    rows = db.scalars(
+        select(Profile).where(*filters).order_by(Profile.full_name, Profile.email).limit(limit).offset(offset)
+    ).all()
+    return ProfileListResponse(items=[ProfileResponse.model_validate(row) for row in rows], total=total)
 
 
 @router.get("/me/summary", response_model=DashboardSummaryResponse)
@@ -120,13 +168,73 @@ def update_me(
     profile: Profile = Depends(get_current_profile),
     db: Session = Depends(get_db),
 ) -> ProfileResponse:
-    """Update the caller's own profile.
+    """Update the caller's own profile, without allowing scope escalation.
 
-    Role, account_status and scope are deliberately absent -- those are
-    changed only by an admin, never by the account holder.
+    Citizens can correct their home ward. Authority ward assignment controls
+    what they are allowed to access, so that remains an administrator action.
     """
-    for field, value in data.model_dump(exclude_unset=True).items():
+    payload = data.model_dump(exclude_unset=True)
+    if "ward_id" in payload:
+        if profile.role is UserRole.AUTHORITY:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only an administrator can change an authority account's ward.",
+            )
+        ward_id = payload.pop("ward_id")
+        if ward_id is None:
+            profile.ward_id = None
+            profile.municipality_id = None
+        else:
+            ward = db.get(Ward, ward_id)
+            if ward is None:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Unknown ward.")
+            profile.ward_id = ward.id
+            profile.municipality_id = ward.municipality_id
+
+    if "email" in payload:
+        email = str(payload.pop("email"))
+        if email != profile.email:
+            other = db.scalar(select(Profile.id).where(Profile.email == email, Profile.id != profile.id))
+            if other is not None:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An account with this email already exists.")
+            update_auth_email(profile.id, email)
+            profile.email = email
+
+    for field, value in payload.items():
         setattr(profile, field, value)
 
     db.flush()
-    return ProfileResponse.model_validate(profile)
+    return _profile_response(profile)
+
+
+@router.get("/me/avatar", response_model=AvatarResponse)
+def my_avatar(profile: Profile = Depends(get_current_profile)) -> AvatarResponse:
+    return AvatarResponse(url=signed_url(profile.avatar_path) if profile.avatar_path else None)
+
+
+@router.put("/me/avatar", response_model=ProfileResponse)
+async def update_my_avatar(
+    avatar: UploadFile = File(...),
+    profile: Profile = Depends(get_current_profile),
+    db: Session = Depends(get_db),
+) -> ProfileResponse:
+    payload = await read_and_validate(avatar)
+    path = upload_photo(payload, f"avatars/{profile.id}", avatar.content_type or "image/jpeg")
+    previous = profile.avatar_path
+    profile.avatar_path = path
+    db.flush()
+    if previous:
+        remove_photos([previous])
+    return _profile_response(profile)
+
+
+@router.delete("/me/avatar", status_code=status.HTTP_204_NO_CONTENT)
+def delete_my_avatar(
+    profile: Profile = Depends(get_current_profile),
+    db: Session = Depends(get_db),
+) -> None:
+    previous = profile.avatar_path
+    profile.avatar_path = None
+    db.flush()
+    if previous:
+        remove_photos([previous])

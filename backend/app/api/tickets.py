@@ -16,7 +16,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from app.core.geo import bounding_box, haversine_m
 from app.core.geocode import reverse_geocode
 from app.core.security import get_current_profile, require_authority
 from app.db.session import get_db, read_session
@@ -50,12 +49,14 @@ from app.schema.ticket import (
     TicketDetail,
     TicketListResponse,
     TicketSummary,
+    TicketUpdateRequest,
 )
 from app.services import ticket_service
 from app.services.storage_service import (
     MAX_PHOTOS_PER_TICKET,
     read_and_validate,
     signed_urls,
+    remove_photos,
     upload_photo,
 )
 
@@ -360,6 +361,7 @@ def list_tickets(
     status_filter: TicketStatus | None = Query(default=None, alias="status"),
     category_id: UUID | None = None,
     ward_id: UUID | None = None,
+    reporter_id: UUID | None = None,
     mine: bool = False,
     parents_only: bool = True,
     search: str | None = Query(default=None, max_length=160),
@@ -383,6 +385,8 @@ def list_tickets(
         filters.append(Ticket.category_id == category_id)
     if ward_id is not None:
         filters.append(Ticket.ward_id == ward_id)
+    if reporter_id is not None:
+        filters.append(Ticket.reporter_id == reporter_id)
     if parents_only and not mine:
         # Children are shown nested under their parent, not as separate rows.
         filters.append(Ticket.parent_id.is_(None))
@@ -413,41 +417,6 @@ def list_tickets(
     )
 
 
-@router.get("/nearby", response_model=TicketListResponse)
-def nearby_tickets(
-    latitude: float = Query(ge=-90, le=90),
-    longitude: float = Query(ge=-180, le=180),
-    radius_m: int = Query(default=1000, ge=50, le=10_000),
-    limit: int = Query(default=20, ge=1, le=100),
-    profile: Profile = Depends(get_current_profile),
-    db: Session = Depends(get_db),
-) -> TicketListResponse:
-    """Open reports around a point, for the corroboration flow."""
-    min_lat, max_lat, min_lon, max_lon = bounding_box(latitude, longitude, radius_m)
-
-    filters = list(ticket_service.scope_filter(profile))
-    filters += [
-        Ticket.parent_id.is_(None),
-        Ticket.status.in_(ticket_service.OPEN_STATUSES),
-        Ticket.latitude.between(min_lat, max_lat),
-        Ticket.longitude.between(min_lon, max_lon),
-    ]
-
-    rows = db.scalars(select(Ticket).where(*filters).limit(300)).all()
-
-    items = []
-    for ticket in rows:
-        distance = haversine_m(latitude, longitude, ticket.latitude, ticket.longitude)
-        if distance > radius_m:
-            continue
-        summary = TicketSummary.model_validate(ticket)
-        summary.distance_m = round(distance, 1)
-        items.append(summary)
-
-    items.sort(key=lambda t: t.distance_m or 0.0)
-    return TicketListResponse(items=items[:limit], total=len(items))
-
-
 @router.get("/{ticket_id}", response_model=TicketDetail)
 def get_ticket(
     ticket_id: UUID,
@@ -463,6 +432,51 @@ def get_ticket(
     return _detail(
         db, ticket, profile, include_candidates=profile.is_authority, parallel=True
     )
+
+
+@router.patch("/{ticket_id}", response_model=TicketDetail)
+def update_ticket_content(
+    ticket_id: UUID,
+    data: TicketUpdateRequest,
+    profile: Profile = Depends(get_current_profile),
+    db: Session = Depends(get_db),
+) -> TicketDetail:
+    ticket = ticket_service.get_ticket(db, ticket_id)
+    is_owner = ticket.reporter_id == profile.id
+    if profile.role is not UserRole.ADMIN and not is_owner:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can edit only your own report.")
+    if profile.role is not UserRole.ADMIN and ticket.status is not TicketStatus.REPORTED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Reports can be edited only before an authority starts reviewing them.",
+        )
+    if ticket.parent_id is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A merged duplicate cannot be edited separately.")
+
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(ticket, field, value)
+    db.flush()
+    return _detail(db, ticket, profile, include_candidates=profile.is_authority)
+
+
+@router.delete("/{ticket_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_ticket(
+    ticket_id: UUID,
+    profile: Profile = Depends(get_current_profile),
+    db: Session = Depends(get_db),
+) -> None:
+    ticket = ticket_service.get_ticket(db, ticket_id)
+    if profile.role is not UserRole.ADMIN and ticket.reporter_id != profile.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can delete only your own report.")
+    if ticket.parent_id is None and ticket.child_count:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This report has corroborating duplicate reports and cannot be deleted.",
+        )
+    paths = list(db.scalars(select(TicketPhoto.storage_path).where(TicketPhoto.ticket_id == ticket.id)).all())
+    db.delete(ticket)
+    db.flush()
+    remove_photos(paths)
 
 
 # ---------------------------------------------------------- corroboration

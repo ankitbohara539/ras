@@ -21,7 +21,6 @@ const STRINGS = {
   'nav.home': ['Home', 'गृहपृष्ठ'],
   'nav.report': ['Report', 'उजुरी'],
   'nav.myReports': ['My Reports', 'मेरा उजुरी'],
-  'nav.nearby': ['Nearby', 'नजिकै'],
   'nav.services': ['Services', 'सेवाहरू'],
   'nav.alerts': ['Alerts', 'सूचना'],
   'nav.sos': ['SOS', 'आपतकाल'],
@@ -399,22 +398,6 @@ const STRINGS = {
   'corroborate.no': ['No, this is not there', 'होइन, यो छैन'],
   'corroborate.done': ['You confirmed this report', 'तपाईंले यो उजुरी पुष्टि गर्नुभयो'],
   'corroborate.disputed': ['You objected to this report', 'तपाईंले आपत्ति जनाउनुभयो'],
-
-  'nearby.title': ['Reports near you', 'तपाईं नजिकका उजुरी'],
-  'nearby.hint': [
-    'Confirm a neighbour’s report so the ward office knows it is real.',
-    'छिमेकीको उजुरी पुष्टि गर्नुहोस् ताकि वडा कार्यालयलाई थाहा होस्।',
-  ],
-  'nearby.none': ['No open reports nearby.', 'नजिकै कुनै खुला उजुरी छैन।'],
-  'nearby.scopeLabel': ['Which reports to show', 'कुन उजुरी देखाउने'],
-  'nearby.tabNearby': ['Around me', 'मेरो वरिपरि'],
-  'nearby.tabWard': ['My ward', 'मेरो वडा'],
-  'nearby.wardTitle': ['Reports in my ward', 'मेरो वडाका उजुरी'],
-  'nearby.wardHint': [
-    'Everything your neighbours reported at home, wherever you are right now.',
-    'तपाईं जहाँ भए पनि, आफ्नो वडामा छिमेकीले गरेका सबै उजुरी।',
-  ],
-  'nearby.wardNone': ['No reports in your ward yet.', 'तपाईंको वडामा अहिलेसम्म उजुरी छैन।'],
 
   'services.title': ['Civic services', 'नागरिक सेवाहरू'],
   'services.search': ['Search services', 'सेवा खोज्नुहोस्'],

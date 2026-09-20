@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { AlertTriangle, Camera, ClipboardList, LocateFixed, MapPin, Plus, X } from 'lucide-react'
+import { AlertTriangle, Camera, ClipboardList, LocateFixed, MapPin, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { CivicStatusBadge } from '../../components/CivicStatusBadge'
 import { LocationMap } from '../../components/LocationMap'
-import { Button, Card, ErrorNote, Field, PageTitle, Spinner, SuccessNote } from '../../components/ui'
+import { Button, Card, ConfirmDialog, ErrorNote, Field, PageTitle, Spinner, SuccessNote } from '../../components/ui'
 import { api } from '../../lib/api'
 import { CIVIC_GROUPS } from '../../lib/civic'
 import { formatCoords, formatDate, useGeolocation } from '../../lib/geo'
@@ -30,11 +30,14 @@ export function CivicReport() {
   const { t, language } = useI18n()
   const [tab, setTab] = useState<'new' | 'mine'>('new')
   const [mine, setMine] = useState<CivicComplaint[] | null>(null)
+  const [editing, setEditing] = useState<CivicComplaint | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const loadMine = useCallback(async () => {
     try {
       setMine((await api.civicComplaints({ limit: 100 })).items)
-    } catch {
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load civic-sense content.')
       setMine([])
     }
   }, [])
@@ -46,6 +49,7 @@ export function CivicReport() {
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <PageTitle title={t('civic.title')} subtitle={t('civic.subtitle')} />
+      {error && <ErrorNote message={error} />}
 
       <div className="flex gap-2" role="tablist">
         {(['new', 'mine'] as const).map((key) => (
@@ -90,11 +94,32 @@ export function CivicReport() {
                 <p style={{ fontSize: 'var(--step-sm)' }}>{complaint.action_note}</p>
               </div>
             )}
+            {complaint.status === 'submitted' && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button type="button" size="sm" variant="secondary" onClick={() => setEditing(complaint)}><Pencil size={15} /> Edit</Button>
+                <ConfirmDialog destructive trigger={<Button type="button" size="sm" variant="danger"><Trash2 size={15} /> Delete</Button>} title="Delete this civic complaint?" description="This removes the complaint and its evidence photos permanently." confirmLabel="Delete complaint" onConfirm={async () => { try { await api.deleteCivicComplaint(complaint.id); await loadMine() } catch (err) { setError(err instanceof Error ? err.message : 'Could not delete the civic complaint.') } }} />
+              </div>
+            )}
           </Card>
         ))
       )}
+      {editing && <EditComplaint complaint={editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await loadMine() }} />}
     </div>
   )
+}
+
+function EditComplaint({ complaint, onClose, onSaved }: { complaint: CivicComplaint; onClose: () => void; onSaved: () => Promise<void> }) {
+  const { t } = useI18n()
+  const [description, setDescription] = useState(complaint.description)
+  const [address, setAddress] = useState(complaint.address_text ?? '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const save = async () => {
+    if (description.trim().length < 10) { setError('Please enter at least 10 characters.'); return }
+    setBusy(true); setError(null)
+    try { await api.updateCivicComplaint(complaint.id, { description: description.trim(), address_text: address.trim() || null }); await onSaved() } catch (err) { setError(err instanceof Error ? err.message : 'Could not update the civic complaint.') } finally { setBusy(false) }
+  }
+  return <div className="fixed inset-0 z-50 flex items-end bg-navy/40 p-3 sm:items-center sm:justify-center"><Card className="w-full max-w-lg space-y-4"><div className="flex items-center justify-between"><h2 className="font-semibold">Edit civic complaint</h2><Button type="button" size="sm" variant="ghost" onClick={onClose}>Close</Button></div>{error && <ErrorNote message={error} />}<Field label={t('civic.describe')} required><textarea className="field" rows={4} minLength={10} maxLength={2000} value={description} onChange={(event) => setDescription(event.target.value)} /></Field><Field label="Address or landmark"><input className="field" maxLength={300} value={address} onChange={(event) => setAddress(event.target.value)} /></Field><div className="flex gap-2"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="button" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : 'Save changes'}</Button></div></Card></div>
 }
 
 function NewComplaint({

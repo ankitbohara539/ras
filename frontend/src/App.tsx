@@ -16,7 +16,6 @@ import {
   CivicQueue,
   CivicReport,
   MyReports,
-  Nearby,
   Notifications,
   PublishAlert,
   ReportIssue,
@@ -27,6 +26,10 @@ import {
   SosQueue,
   TicketDetailPage,
   Transparency,
+  UserManagement,
+  WardManagement,
+  WardPeople,
+  ProfilePage,
 } from './routes'
 
 function RequireAuth({
@@ -140,13 +143,13 @@ export default function App() {
               >
                 <Route path="report" element={<ReportIssue />} />
                 <Route path="my-reports" element={<MyReports />} />
-                <Route path="nearby" element={<Nearby />} />
                 <Route path="services" element={<Services />} />
                 <Route path="sos" element={<Sos />} />
                 <Route path="civic" element={<CivicReport />} />
                 <Route path="safe-route" element={<RequireCitizen><SafeRoute /></RequireCitizen>} />
                 <Route path="notifications" element={<Notifications />} />
                 <Route path="tickets/:id" element={<TicketDetailPage />} />
+                <Route path="profile" element={<ProfilePage />} />
 
                 <Route
                   path="authority"
@@ -180,6 +183,7 @@ export default function App() {
                     </RequireAuth>
                   }
                 />
+                <Route path="authority/people" element={<RequireAuth role="authority"><WardPeople /></RequireAuth>} />
                 <Route
                   path="authority/alerts"
                   element={
@@ -196,6 +200,8 @@ export default function App() {
                     </RequireAuth>
                   }
                 />
+                <Route path="admin/users" element={<RequireAuth role="admin"><UserManagement /></RequireAuth>} />
+                <Route path="admin/wards" element={<RequireAuth role="admin"><WardManagement /></RequireAuth>} />
               </Route>
 
               <Route path="*" element={<Navigate to="/" replace />} />

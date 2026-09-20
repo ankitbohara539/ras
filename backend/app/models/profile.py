@@ -23,6 +23,10 @@ class Profile(Timestamped, Base):
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     full_name: Mapped[str | None] = mapped_column(String(160))
     phone: Mapped[str | None] = mapped_column(String(32))
+    # Stored in the existing private evidence bucket. The API only returns a
+    # short-lived URL to the account owner (or an administrator), never a
+    # browser-guessable public path.
+    avatar_path: Mapped[str | None] = mapped_column(String(400))
 
     role: Mapped[UserRole] = mapped_column(
         SAEnum(UserRole, name="user_role", native_enum=True),

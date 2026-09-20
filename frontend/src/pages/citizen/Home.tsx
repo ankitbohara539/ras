@@ -5,7 +5,6 @@ import {
   Building2,
   ChartNoAxesCombined,
   FilePlus2,
-  MapPin,
   Route,
   Siren,
   Sparkles,
@@ -130,12 +129,6 @@ export function CitizenHome() {
         </h2>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {[
-            {
-              to: '/nearby',
-              label: t('nav.nearby'),
-              hint: text('See reports around you', 'आसपासका उजुरी हेर्नुहोस्'),
-              icon: MapPin,
-            },
             {
               to: '/safe-route',
               label: t('nav.safeRoute'),

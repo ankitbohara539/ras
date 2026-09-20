@@ -1,4 +1,5 @@
 import type {
+  AdminProfileDetail,
   Alert,
   Category,
   CivicComplaint,
@@ -12,6 +13,7 @@ import type {
   Hazard,
   MunicipalityDetail,
   Municipality,
+  ManagedWard,
   NotificationList,
   PlaceResult,
   Profile,
@@ -32,6 +34,7 @@ import type {
   TokenResponse,
   TravelMode,
   Ward,
+  WardDetail,
 } from './types'
 
 import { invalidateAll } from './cache'
@@ -248,6 +251,16 @@ export const api = {
   updateMe: (payload: Partial<Profile>) =>
     request<Profile>('/users/me', { method: 'PATCH', body: payload }),
 
+  myAvatar: () => request<{ url: string | null }>('/users/me/avatar'),
+
+  updateAvatar: (avatar: File) => {
+    const form = new FormData()
+    form.append('avatar', avatar)
+    return request<Profile>('/users/me/avatar', { method: 'PUT', formData: form })
+  },
+
+  deleteAvatar: () => request<void>('/users/me/avatar', { method: 'DELETE' }),
+
   // -- reference (public) --------------------------------------------
   categories: () => request<Category[]>('/categories', { auth: false }),
 
@@ -299,8 +312,13 @@ export const api = {
     return request<CivicComplaint>('/civic', { method: 'POST', formData: form })
   },
 
-  civicComplaints: (params: { status?: CivicStatus; category?: CivicCategory; limit?: number } = {}) =>
+  civicComplaints: (params: { status?: CivicStatus; category?: CivicCategory; ward_id?: string; reporter_id?: string; search?: string; limit?: number; offset?: number } = {}) =>
     request<CivicComplaintList>(`/civic${query(params)}`),
+
+  updateCivicComplaint: (id: string, payload: Partial<Pick<CivicComplaint, 'category' | 'description' | 'address_text' | 'occurred_at'>>) =>
+    request<CivicComplaint>(`/civic/${id}`, { method: 'PATCH', body: payload }),
+
+  deleteCivicComplaint: (id: string) => request<void>(`/civic/${id}`, { method: 'DELETE' }),
 
   updateCivicStatus: (id: string, status: CivicStatus, note?: string) =>
     request<CivicComplaint>(`/civic/${id}/status`, {
@@ -334,6 +352,7 @@ export const api = {
     status?: TicketStatus
     category_id?: string
     ward_id?: string
+    reporter_id?: string
     mine?: boolean
     parents_only?: boolean
     search?: string
@@ -341,10 +360,12 @@ export const api = {
     offset?: number
   }) => request<TicketListResponse>(`/tickets${query(params)}`),
 
-  nearbyTickets: (coords: Coords, radius_m = 1000) =>
-    request<TicketListResponse>(`/tickets/nearby${query({ ...coords, radius_m })}`),
-
   ticket: (id: string) => request<TicketDetail>(`/tickets/${id}`),
+
+  updateTicket: (id: string, payload: { title?: string; description?: string; address_text?: string | null }) =>
+    request<TicketDetail>(`/tickets/${id}`, { method: 'PATCH', body: payload }),
+
+  deleteTicket: (id: string) => request<void>(`/tickets/${id}`, { method: 'DELETE' }),
 
   corroborate: (
     id: string,
@@ -449,8 +470,30 @@ export const api = {
   // -- admin ---------------------------------------------------------
   pendingAuthorities: () => request<ProfileList>('/admin/profiles/pending'),
 
-  allProfiles: (params: { role?: string; account_status?: string; search?: string }) =>
+  allProfiles: (params: { role?: string; account_status?: string; municipality_id?: string; ward_id?: string; search?: string }) =>
     request<ProfileList>(`/admin/profiles${query(params)}`),
+
+  wardCivilians: (params: { search?: string; limit?: number; offset?: number } = {}) =>
+    request<ProfileList>(`/users/ward/civilians${query(params)}`),
+
+  adminProfile: (id: string) => request<AdminProfileDetail>(`/admin/profiles/${id}/detail`),
+
+  updateProfile: (id: string, payload: Partial<Profile>) =>
+    request<Profile>(`/admin/profiles/${id}`, { method: 'PATCH', body: payload }),
+
+  deleteProfile: (id: string) => request<void>(`/admin/profiles/${id}`, { method: 'DELETE' }),
+
+  wards: (params: { municipality_id?: string; search?: string } = {}) =>
+    request<ManagedWard[]>(`/admin/wards${query(params)}`),
+
+  ward: (id: string) => request<WardDetail>(`/admin/wards/${id}`),
+
+  createWard: (payload: Omit<Ward, 'id'>) => request<ManagedWard>('/admin/wards', { method: 'POST', body: payload }),
+
+  updateWard: (id: string, payload: Partial<Omit<Ward, 'id' | 'municipality_id'>>) =>
+    request<ManagedWard>(`/admin/wards/${id}`, { method: 'PATCH', body: payload }),
+
+  deleteWard: (id: string) => request<void>(`/admin/wards/${id}`, { method: 'DELETE' }),
 
   approveAuthority: (id: string, payload: { ward_id?: string; note?: string }) =>
     request<Profile>(`/admin/profiles/${id}/approve`, { method: 'POST', body: payload }),

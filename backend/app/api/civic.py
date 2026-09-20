@@ -18,12 +18,13 @@ from app.core.geocode import reverse_geocode
 from app.core.security import get_current_profile
 from app.db.session import get_db
 from app.models.civic import CivicComplaint
-from app.models.enums import CivicCategory, CivicStatus
+from app.models.enums import CivicCategory, CivicStatus, UserRole
 from app.models.profile import Profile
 from app.schema.civic import (
     CivicComplaintCreateRequest,
     CivicComplaintListResponse,
     CivicComplaintResponse,
+    CivicComplaintUpdateRequest,
     CivicPhoto,
     CivicStatusUpdateRequest,
 )
@@ -124,6 +125,9 @@ async def file_complaint(
 def list_complaints(
     status_filter: CivicStatus | None = Query(default=None, alias="status"),
     category: CivicCategory | None = None,
+    ward_id: UUID | None = None,
+    reporter_id: UUID | None = None,
+    search: str | None = Query(default=None, max_length=160),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     profile: Profile = Depends(get_current_profile),
@@ -137,6 +141,17 @@ def list_complaints(
         filters.append(CivicComplaint.status == status_filter)
     if category is not None:
         filters.append(CivicComplaint.category == category)
+    if ward_id is not None:
+        filters.append(CivicComplaint.ward_id == ward_id)
+    if reporter_id is not None:
+        filters.append(CivicComplaint.reporter_id == reporter_id)
+    if search:
+        pattern = f"%{search.lower()}%"
+        filters.append(
+            func.lower(CivicComplaint.public_code).like(pattern)
+            | func.lower(CivicComplaint.description).like(pattern)
+            | func.lower(func.coalesce(CivicComplaint.address_text, "")).like(pattern)
+        )
 
     rows = db.scalars(
         select(CivicComplaint)
@@ -172,6 +187,47 @@ def get_complaint(
 ) -> CivicComplaintResponse:
     complaint = civic_service.get_visible(db, profile, complaint_id)
     return _response(db, complaint, profile)
+
+
+@router.patch("/{complaint_id}", response_model=CivicComplaintResponse)
+def update_complaint(
+    complaint_id: UUID,
+    data: CivicComplaintUpdateRequest,
+    profile: Profile = Depends(get_current_profile),
+    db: Session = Depends(get_db),
+) -> CivicComplaintResponse:
+    complaint = civic_service.get_visible(db, profile, complaint_id)
+    if profile.role is not UserRole.ADMIN and complaint.reporter_id != profile.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can edit only your own civic complaint.")
+    if profile.role is not UserRole.ADMIN and complaint.status is not CivicStatus.SUBMITTED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A civic complaint can be edited only before review starts.",
+        )
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(complaint, field, value)
+    db.flush()
+    return _response(db, complaint, profile)
+
+
+@router.delete("/{complaint_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_complaint(
+    complaint_id: UUID,
+    profile: Profile = Depends(get_current_profile),
+    db: Session = Depends(get_db),
+) -> None:
+    complaint = civic_service.get_visible(db, profile, complaint_id)
+    if profile.role is not UserRole.ADMIN and complaint.reporter_id != profile.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can delete only your own civic complaint.")
+    if profile.role is not UserRole.ADMIN and complaint.status is not CivicStatus.SUBMITTED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A civic complaint can be deleted only before review starts.",
+        )
+    paths = [p.storage_path for p in complaint.photos]
+    db.delete(complaint)
+    db.flush()
+    remove_photos(paths)
 
 
 @router.patch("/{complaint_id}/status", response_model=CivicComplaintResponse)

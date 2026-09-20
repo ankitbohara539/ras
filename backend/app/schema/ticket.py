@@ -25,6 +25,16 @@ class TicketCreateRequest(BaseModel):
     description_lang: Language = Language.EN
 
 
+class TicketUpdateRequest(BaseModel):
+    """Reporter-editable content. Routing, workflow status, and priority are
+    deliberately separate authority actions so a text correction cannot move
+    a live issue between wards or silently reset a decision."""
+
+    title: str | None = Field(default=None, min_length=2, max_length=200)
+    description: str | None = Field(default=None, min_length=10, max_length=4000)
+    address_text: str | None = Field(default=None, max_length=300)
+
+
 class PhotoResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

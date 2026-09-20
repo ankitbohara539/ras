@@ -60,8 +60,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Nothing cached for a previous account may be shown to this one.
     clearCache()
     setToken(result.access_token)
-    setProfile(result.profile)
-    return result.profile
+    // Login returns the durable profile fields. Hydrate once through /me so
+    // private presentation fields such as the signed avatar URL are ready for
+    // the sidebar immediately after sign-in.
+    try {
+      const hydrated = await api.me()
+      setProfile(hydrated)
+      return hydrated
+    } catch {
+      setProfile(result.profile)
+      return result.profile
+    }
   }, [])
 
   const signOut = useCallback(() => {

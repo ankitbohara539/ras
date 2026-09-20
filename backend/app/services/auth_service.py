@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.supabase import new_auth_client
+from app.core.supabase import get_supabase, new_auth_client
 from app.models.enums import AccountStatus, UserRole
 from app.models.geography import Ward
 from app.models.profile import Profile
@@ -248,3 +248,25 @@ def refresh_session(refresh_token: str) -> object:
             detail="Invalid refresh token.",
         )
     return result.session
+
+
+def update_auth_email(user_id: UUID, email: str) -> None:
+    """Update the credential owner after the application has checked the
+    requested address is unused. Keeping auth.users and profiles in sync is
+    essential: the profile is only the application's access-control record,
+    while Supabase Auth is the sign-in identity.
+
+    Supabase applies its configured email-confirmation policy to this update.
+    The client receives a clear response when the provider rejects a change.
+    """
+    try:
+        get_supabase().auth.admin.update_user_by_id(str(user_id), {"email": email})
+    except Exception as exc:
+        raise _supabase_error(exc, "Could not update the email address") from exc
+
+
+def delete_auth_user(user_id: UUID) -> None:
+    try:
+        get_supabase().auth.admin.delete_user(str(user_id))
+    except Exception as exc:
+        raise _supabase_error(exc, "Could not delete the account") from exc

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Map, MapPin } from 'lucide-react'
+import { Map, MapPin, Pencil, Trash2 } from 'lucide-react'
 import { CivicStatusBadge } from '../../components/CivicStatusBadge'
 import { LocationMap } from '../../components/LocationMap'
-import { Button, Card, EmptyState, ErrorNote, Field, PageTitle, Spinner } from '../../components/ui'
+import { Button, Card, ConfirmDialog, EmptyState, ErrorNote, Field, PageTitle, Spinner } from '../../components/ui'
 import { api } from '../../lib/api'
+import { useAuth } from '../../lib/auth'
 import { CIVIC_NEEDS_NOTE, CIVIC_NEXT, CIVIC_STATUSES } from '../../lib/civic'
 import { formatCoords, formatDate, mapsLink } from '../../lib/geo'
 import { useI18n } from '../../lib/i18n'
@@ -87,10 +88,14 @@ function ComplaintCard({
   onChanged: () => Promise<void>
 }) {
   const { t, language } = useI18n()
+  const { isAdmin } = useAuth()
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showMap, setShowMap] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [description, setDescription] = useState(complaint.description)
+  const [address, setAddress] = useState(complaint.address_text ?? '')
 
   const move = async (next: CivicStatus) => {
     if (CIVIC_NEEDS_NOTE.includes(next) && !note.trim()) {
@@ -111,6 +116,11 @@ function ComplaintCard({
   }
 
   const next = CIVIC_NEXT[complaint.status]
+  const saveContent = async () => {
+    if (description.trim().length < 10) { setError('Please enter at least 10 characters.'); return }
+    setBusy(true); setError(null)
+    try { await api.updateCivicComplaint(complaint.id, { description: description.trim(), address_text: address.trim() || null }); setEditing(false); await onChanged() } catch (err) { setError(err instanceof Error ? err.message : t('common.error')) } finally { setBusy(false) }
+  }
 
   return (
     <Card>
@@ -123,9 +133,8 @@ function ComplaintCard({
         </span>
       </div>
 
-      <p className="mt-2" style={{ fontSize: 'var(--step-md)' }}>
-        {complaint.description}
-      </p>
+      {editing ? <div className="mt-3 space-y-2"><Field label="Description" required><textarea className="field" rows={3} value={description} onChange={(event) => setDescription(event.target.value)} minLength={10} maxLength={2000} /></Field><Field label="Address or landmark"><input className="field" value={address} onChange={(event) => setAddress(event.target.value)} maxLength={300} /></Field><div className="flex gap-2"><Button type="button" variant="secondary" onClick={() => setEditing(false)}>Cancel</Button><Button type="button" disabled={busy} onClick={() => void saveContent()}>{busy ? 'Saving…' : 'Save changes'}</Button></div></div> : <p className="mt-2" style={{ fontSize: 'var(--step-md)' }}>{complaint.description}</p>}
+      {isAdmin && !editing && <div className="mt-3 flex flex-wrap gap-2"><Button type="button" size="sm" variant="secondary" onClick={() => setEditing(true)}><Pencil size={15} /> Edit</Button><ConfirmDialog destructive trigger={<Button type="button" size="sm" variant="danger" disabled={busy}><Trash2 size={15} /> Delete</Button>} title="Delete this civic content?" description="This permanently removes the submission and its evidence photos." confirmLabel="Delete content" onConfirm={async () => { try { await api.deleteCivicComplaint(complaint.id); await onChanged() } catch (err) { setError(err instanceof Error ? err.message : t('common.error')) } }} /></div>}
 
       {complaint.photos.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">

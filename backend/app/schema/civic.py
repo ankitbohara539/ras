@@ -28,6 +28,7 @@ class CivicComplaintResponse(BaseModel):
 
     id: UUID
     public_code: str
+    reporter_id: UUID
     category: CivicCategory
     description: str
     latitude: float
@@ -58,3 +59,10 @@ class CivicComplaintListResponse(BaseModel):
 class CivicStatusUpdateRequest(BaseModel):
     status: CivicStatus
     note: str | None = Field(default=None, max_length=1000)
+
+
+class CivicComplaintUpdateRequest(BaseModel):
+    category: CivicCategory | None = None
+    description: str | None = Field(default=None, min_length=10, max_length=2000)
+    address_text: str | None = Field(default=None, max_length=300)
+    occurred_at: datetime | None = None

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Check, Link2, LocateFixed, LockKeyhole, MapPin, Users, X, Zap } from 'lucide-react'
+import { Check, Link2, LocateFixed, LockKeyhole, MapPin, Pencil, Trash2, Users, X, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   Button,
@@ -74,6 +74,10 @@ export function TicketDetailPage() {
   const [wards, setWards] = useState<Ward[]>([])
   const [priorityNote, setPriorityNote] = useState('')
   const [showReassign, setShowReassign] = useState(false)
+  const [editingReport, setEditingReport] = useState(false)
+  const [editTitle, setEditTitle] = useState('')
+  const [editDescription, setEditDescription] = useState('')
+  const [editAddress, setEditAddress] = useState('')
 
   const [commentDraft, setCommentDraft] = useState('')
   const [commentBusy, setCommentBusy] = useState(false)
@@ -167,6 +171,7 @@ export function TicketDetailPage() {
   if (!ticket) return <ErrorNote message={error ?? loadError ?? t('common.error')} />
 
   const isMine = ticket.reporter_id === profile?.id
+  const canManageContent = isMine || profile?.role === 'admin'
   const reporters = ticket.child_count + 1
   const canCorroborate =
     !isAuthority && !isMine && ticket.my_corroboration === null &&
@@ -177,6 +182,42 @@ export function TicketDetailPage() {
     ticket.description,
     ticket.resolution_note ?? '',
   ].join('. ')
+
+  const beginEdit = () => {
+    setEditTitle(ticket.title)
+    setEditDescription(ticket.description)
+    setEditAddress(ticket.address_text ?? '')
+    setEditingReport(true)
+  }
+
+  const saveReport = async () => {
+    if (!editTitle.trim() || editDescription.trim().length < 10) {
+      setError('Enter a title and at least 10 characters of description.')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      await api.updateTicket(ticket.id, { title: editTitle.trim(), description: editDescription.trim(), address_text: editAddress.trim() || null })
+      setEditingReport(false)
+      setMessage('Report updated successfully.')
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'))
+    } finally { setBusy(false) }
+  }
+
+  const deleteReport = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await api.deleteTicket(ticket.id)
+      toast.success('Report deleted.')
+      navigate(profile?.role === 'admin' ? '/authority' : '/my-reports')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.error'))
+    } finally { setBusy(false) }
+  }
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
@@ -221,12 +262,7 @@ export function TicketDetailPage() {
           </div>
         </div>
 
-        <h1 className="mt-3 font-bold" style={{ fontSize: 'var(--step-lg)' }}>
-          {ticket.title}
-        </h1>
-        <p className="mt-2" style={{ fontSize: 'var(--step-md)' }}>
-          {ticket.description}
-        </p>
+        {editingReport ? <div className="mt-4 space-y-3 rounded-lg border border-line bg-canvas p-3"><Field label="Title" required><input className="field" value={editTitle} maxLength={200} onChange={(event) => setEditTitle(event.target.value)} /></Field><Field label="Description" required><textarea className="field" rows={4} value={editDescription} minLength={10} maxLength={4000} onChange={(event) => setEditDescription(event.target.value)} /></Field><Field label="Address or landmark"><input className="field" value={editAddress} maxLength={300} onChange={(event) => setEditAddress(event.target.value)} /></Field><div className="flex flex-wrap gap-2"><Button type="button" variant="secondary" onClick={() => setEditingReport(false)}>Cancel</Button><Button type="button" disabled={busy} onClick={() => void saveReport()}>{busy ? 'Saving…' : 'Save changes'}</Button></div></div> : <><h1 className="mt-3 font-bold" style={{ fontSize: 'var(--step-lg)' }}>{ticket.title}</h1><p className="mt-2" style={{ fontSize: 'var(--step-md)' }}>{ticket.description}</p>{canManageContent && !ticket.parent_id && (ticket.status === 'reported' || profile?.role === 'admin') && <div className="mt-3 flex flex-wrap gap-2"><Button type="button" size="sm" variant="secondary" onClick={beginEdit}><Pencil size={15} /> Edit report</Button><ConfirmDialog destructive trigger={<Button type="button" size="sm" variant="danger" disabled={busy}><Trash2 size={15} /> Delete report</Button>} title="Delete this report?" description="This permanently removes the report and its attached photos." confirmLabel="Delete report" onConfirm={deleteReport} /></div>}</>}
 
         <dl className="mt-4 grid gap-2 sm:grid-cols-2" style={{ fontSize: 'var(--step-sm)' }}>
           <div>
