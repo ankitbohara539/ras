@@ -36,6 +36,7 @@ import { useI18n } from '../lib/i18n'
 
 const COLORS = ['#1D293D', '#526176', '#087F75']
 const TABLE_BATCH_SIZE = 5
+const PROJECT_DOCUMENT_URL = '/docs/Sahayatri-research-paper.docx'
 const tooltipStyle = {
   border: '1px solid var(--color-line)',
   borderRadius: 10,
@@ -702,6 +703,15 @@ export function Transparency() {
               'Public totals only. Personal report details stay private.',
               'सार्वजनिक तथ्याङ्क मात्र। व्यक्तिगत विवरण गोप्य रहन्छ।',
             )}
+            <span aria-hidden="true">·</span>
+            <a
+              href={PROJECT_DOCUMENT_URL}
+              download="Sahayatri-research-paper.docx"
+              className="btn btn-secondary min-h-9 px-3"
+            >
+              <FileText size={15} aria-hidden="true" />
+              {text('Download docs', 'कागजात डाउनलोड गर्नुहोस्')}
+            </a>
             <span aria-hidden="true">·</span>
             <InstallAppButton />
           </span>

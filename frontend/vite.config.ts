@@ -71,7 +71,7 @@ export default defineConfig(({ mode }) => {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
           navigateFallback: '/index.html',
           // Never let the shell swallow API calls.
-          navigateFallbackDenylist: [/^\/api\//],
+          navigateFallbackDenylist: [/^\/api\//, /^\/docs\//],
           cleanupOutdatedCaches: true,
 
           runtimeCaching: [
