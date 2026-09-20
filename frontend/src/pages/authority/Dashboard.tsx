@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { useQuery } from '../../lib/cache'
 import { Link } from 'react-router-dom'
+import { DashboardSummaryModal } from '../../components/DashboardSummaryModal'
 import { TicketCard } from '../../components/TicketCard'
 import {
   EmptyState,
@@ -152,6 +153,18 @@ export function AuthorityDashboard() {
       {countsQuery.error instanceof Error && (
         <ErrorNote message={countsQuery.error.message} />
       )}
+    <div className="space-y-5">
+      <PageTitle
+        title={title}
+        subtitle={subtitle}
+        action={
+          <Button variant="secondary" onClick={() => setShowSummary(true)}>
+            ✨ {t('summary.buttonLabel')}
+          </Button>
+        }
+      />
+
+      {showSummary && <DashboardSummaryModal onClose={() => setShowSummary(false)} />}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat

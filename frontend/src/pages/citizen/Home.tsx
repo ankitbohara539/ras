@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowRight,
@@ -11,6 +12,7 @@ import {
 } from 'lucide-react'
 import { TicketCard } from '../../components/TicketCard'
 import {
+  Button,
   Card,
   EmptyState,
   ErrorNote,
@@ -28,6 +30,7 @@ export function CitizenHome() {
   const { t, pick, language } = useI18n()
   const text = (en: string, ne: string) => (language === 'ne' ? ne : en)
   const { profile } = useAuth()
+  const [showSummary, setShowSummary] = useState(false)
 
   // Home is the page people return to most, so it paints from cache and
   // refreshes behind the scenes. Each half fails on its own: no alerts is
@@ -66,6 +69,24 @@ export function CitizenHome() {
         </Link>
       </section>
 
+      {showSummary && <DashboardSummaryModal onClose={() => setShowSummary(false)} />}
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Link
+          to="/report"
+          className="card flex items-center gap-4 p-5 transition hover:border-[var(--color-brand)]"
+          style={{ background: 'var(--color-brand-soft)', borderColor: 'var(--color-brand)' }}
+        >
+          <span aria-hidden="true" style={{ fontSize: '2rem' }}>
+            📝
+          </span>
+          <div>
+            <p className="font-bold" style={{ fontSize: 'var(--step-md)' }}>
+              {t('report.title')}
+            </p>
+            <p className="hint">{t('report.descriptionHint')}</p>
+          </div>
+        </Link>
       <section className="grid gap-4 md:grid-cols-[1.5fr_1fr]">
         <div className="dashboard-primary-action rounded-2xl bg-ink p-6 text-white shadow-[0_18px_45px_rgba(29,41,61,0.16)] sm:p-8">
           <FilePlus2 size={28} className="mb-5" />
